@@ -4,7 +4,7 @@ Kontrak yang diharapkan:
     GET <DIRECTORY_LOOKUP_URL dengan {nomor} terisi>
     Header: X-API-Key, X-API-Secret
     200: {"status": true, "data": {"member_no", "name", "category", "unit", "status"}}
-    404: anggota tidak ditemukan
+    404: anggota tidak ditemukan; 401/403: kredensial ditolak; 429: batas laju terlampaui
 
 Hanya field di atas yang diambil; respons mentah tidak pernah disimpan atau dicatat ke log.
 """
@@ -82,6 +82,10 @@ class ApiDirectory:
                 return None
             if exc.code in (401, 403):
                 raise ExtensionError("API key direktori ditolak (cek DIRECTORY_API_*)") from None
+            if exc.code == 429:
+                raise ExtensionError(
+                    "Batas permintaan ke direktori terlampaui, coba lagi nanti"
+                ) from None
             raise ExtensionError(f"Direktori mengembalikan HTTP {exc.code}") from None
         except (urllib.error.URLError, TimeoutError) as exc:
             raise ExtensionError(f"Tidak bisa terhubung ke direktori: {exc}") from None

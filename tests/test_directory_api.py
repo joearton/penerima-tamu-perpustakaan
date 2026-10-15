@@ -59,10 +59,11 @@ def test_lookup_maps_minimal_fields(directory, monkeypatch):
 
 
 def test_unknown_category_becomes_umum(directory, monkeypatch):
-    data = {"member_no": "1", "name": "X", "category": "Alumni", "unit": "", "status": ""}
+    data = {"member_no": "1", "name": "X", "category": "Alumni", "unit": None, "status": ""}
     routes = {URL.format(nomor="1"): (200, data)}
     monkeypatch.setattr(directory_api.urllib.request, "urlopen", fake_urlopen(routes, []))
-    assert directory.lookup("1").category == "Umum"
+    person = directory.lookup("1")
+    assert (person.category, person.unit) == ("Umum", "")
 
 
 def test_not_found_and_auth_error(directory, monkeypatch):
@@ -71,6 +72,10 @@ def test_not_found_and_auth_error(directory, monkeypatch):
     routes = {URL.format(nomor="1"): (401, None)}
     monkeypatch.setattr(directory_api.urllib.request, "urlopen", fake_urlopen(routes, []))
     with pytest.raises(ExtensionError, match="ditolak"):
+        directory.lookup("1")
+    routes = {URL.format(nomor="1"): (429, None)}
+    monkeypatch.setattr(directory_api.urllib.request, "urlopen", fake_urlopen(routes, []))
+    with pytest.raises(ExtensionError, match="Batas permintaan"):
         directory.lookup("1")
 
 
