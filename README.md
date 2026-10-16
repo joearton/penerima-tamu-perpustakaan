@@ -2,19 +2,24 @@
 
 Aplikasi desktop untuk mencatat pengunjung perpustakaan dengan **face recognition**: anggota cukup menghadap kamera, lalu kunjungannya tercatat dan mereka disambut dengan sapaan suara.
 
-**Stack:** Python 3.11+ · PySide6 (Qt 6 + QtMultimedia) · OpenCV DNN (deteksi YuNet + pengenalan SFace) · SQLite/SQLAlchemy · pandas/openpyxl · gTTS
+**Stack:** Python 3.11+ · PySide6 (Qt 6 + QtMultimedia) · OpenCV DNN (deteksi YuNet, pengenalan SFace, anti-spoofing MiniFASNet) · SQLite/SQLAlchemy · pandas/openpyxl · gTTS
 
 ## Fitur
 - **Kunjungan:** wajah anggota dikenali otomatis dari kamera lalu kunjungan dicatat. Ada jeda catat ulang supaya orang yang sama tidak tercatat berkali-kali. Tersedia juga input manual (No. anggota / scan barcode) dan form tamu non-anggota.
+- **Beberapa wajah sekaligus:** semua anggota yang dikenali dalam satu frame dicatat bersamaan dan disapa dalam satu sapaan ("Selamat pagi, Siti dan Budi!"). Konfirmasi wajah dihitung per orang. Bisa diubah ke mode satu wajah terdekat, dan jumlah maksimal wajah per frame bisa diatur.
+- **Anti-spoofing:** wajah dari foto cetak atau layar HP ditolak, baik saat kunjungan maupun registrasi, memakai MiniFASNet (sekitar 3 ms per wajah di CPU). Ambang skornya bisa diatur di Pengaturan.
 - **Registrasi Anggota:** mengambil beberapa sampel wajah, wajib dengan persetujuan data biometrik. Ada peringatan bila wajahnya mirip anggota lain.
 - **Data Anggota:** cari, hapus data wajah, atau hapus anggota. Riwayat kunjungan anggota yang dihapus tetap ada tetapi dianonimkan.
 - **Laporan:** filter per rentang tanggal dan ekspor Excel (sheet detail + rekap harian per kategori).
 - **Sapaan:** pesan sambutan sesuai jam ("Selamat pagi/siang/sore/malam"). Templatenya bisa diubah, lalu ditampilkan di layar dan diucapkan.
 - **Suara:** bunyi notifikasi (bawaan atau file sendiri) dan text-to-speech via gTTS. Sapaan disimpan di cache MP3, jadi yang pernah diucapkan tetap bisa diputar saat offline.
 - **Pengaturan:** semua parameter (kamera, ambang pengenalan, jeda catat ulang, sapaan, suara, volume) diubah dari tab Pengaturan dan langsung berlaku.
-- **Mode kios:** PIN admin dan/atau login admin eksternal mengunci tab selain Kunjungan, dan terkunci lagi otomatis saat kembali ke tab Kunjungan.
+- **Jendela Mode Kios:** jendela layar penuh terpisah khusus pencatatan, dengan kamera, sapaan besar, input scan kartu/NIM, tombol tamu, dan daftar kunjungan hari ini. Dibuka lewat tombol "Mode Kios" atau F10. Kalau ada monitor kedua, otomatis tampil di sana. Untuk keluar tekan Esc; kalau kunci admin aktif, wajib PIN/login admin. Bisa diatur agar langsung terbuka saat aplikasi dimulai.
+- **Kunci admin:** PIN admin dan/atau login admin eksternal mengunci tab selain Kunjungan, dan terkunci lagi otomatis saat kembali ke tab Kunjungan.
 - **Integrasi opsional:** lookup data anggota dari API direktori dan login admin via OAuth2/OpenID Connect (lihat di bawah).
-- **Lain-lain:** backup database, layar penuh (F11), dan log ke `data/app.log`.
+- **Backup otomatis:** database dibackup sekali sehari ke `data/backups/` atau folder pilihan (mis. flashdisk), dengan menyimpan N salinan terakhir. Backup manual tetap tersedia.
+- **Privasi layar kios:** secara default layar kios hanya menampilkan jumlah pengunjung hari ini, bukan nama pengunjung lain.
+- **Lain-lain:** layar penuh (F11) dan log ke `data/app.log`.
 
 ## Setup
 ```bash
@@ -89,9 +94,11 @@ src/library_visitor/
   extensions.py      antarmuka integrasi opsional (direktori, login admin)
   directory_api.py   klien API direktori anggota (read-only, field minimal)
   oidc_login.py      login admin OAuth2/OIDC (PKCE, redirect loopback)
-  face/              engine YuNet+SFace, matcher, unduh model
-  ui/                jendela utama & halaman-halaman
+  backups.py         backup harian otomatis + rotasi
+  face/              engine YuNet+SFace, matcher, anti-spoofing, unduh model
+  ui/                jendela utama, halaman-halaman, jendela Mode Kios
 tests/               pytest
+packaging/           spec PyInstaller, ikon, installer Linux & Windows
 ```
 
 ## Pengembangan
@@ -100,12 +107,33 @@ tests/               pytest
 .venv/bin/ruff check src tests && .venv/bin/ruff format src tests
 ```
 
-## Build executable
-```bash
-.venv/bin/pip install -e ".[build]"
-.venv/bin/pyinstaller --name LibraryVisitor --windowed src/library_visitor/__main__.py
+## Installer
+Paket siap pakai untuk PC perpustakaan. Model wajah sudah dibundel, jadi tidak perlu internet saat pertama dijalankan.
+
+### Windows
+Build di Windows dengan Python 3.11+ dan [Inno Setup 6](https://jrsoftware.org/isdl.php):
+```powershell
+powershell -ExecutionPolicy Bypass -File packaging\windows\build.ps1
 ```
-Salin folder `models/` ke samping executable, atau biarkan aplikasi mengunduhnya saat pertama dijalankan.
+Hasilnya `dist\PenerimaTamuPerpustakaan-<versi>-setup.exe`. Installer ini:
+- bisa dipasang tanpa hak admin (untuk user saat ini) atau untuk semua user,
+- membuat shortcut Start Menu, opsional shortcut desktop, dan opsional **jalan otomatis saat Windows dinyalakan** (untuk PC kios),
+- menyimpan data di `%LOCALAPPDATA%\PenerimaTamuPerpustakaan`. Taruh `.env` di folder ini. Data tidak ikut terhapus saat uninstall.
+
+### Linux
+```bash
+bash packaging/linux/build.sh          # -> dist/penerima-tamu-perpustakaan-<versi>-linux-<arch>.tar.gz
+```
+Di PC tujuan, ekstrak lalu jalankan `./install.sh` (tambahkan `--autostart` untuk jalan otomatis saat login). Aplikasi terpasang untuk user saat ini tanpa sudo, muncul di menu aplikasi, dan bisa dijalankan dengan perintah `penerima-tamu`. Data dan `.env` ada di `~/.local/share/penerima-tamu-perpustakaan/`. Hapus dengan `./uninstall.sh` (`--purge` untuk ikut menghapus data).
+
+Di sesi X11, Qt butuh paket sistem `libxcb-cursor0` (Debian/Ubuntu: `sudo apt install libxcb-cursor0`). Di sesi Wayland paket ini tidak diperlukan.
+
+### Build otomatis (GitHub Actions)
+Workflow `.github/workflows/build-installers.yml` membangun installer Windows dan Linux. Jalankan manual dari tab Actions, atau otomatis saat tag `v*` di-push. Hasilnya bisa diunduh sebagai artifact.
+
+## Lisensi model
+- YuNet dan SFace (OpenCV Zoo) memakai lisensi Apache-2.0 dan diunduh saat pertama kali dijalankan.
+- MiniFASNet dari [Silent-Face-Anti-Spoofing](https://github.com/minivision-ai/Silent-Face-Anti-Spoofing) (Minivision AI) juga berlisensi Apache-2.0. Modelnya dikonversi ke ONNX dan disertakan di `src/library_visitor/face/antispoof_models/`, beserta `LICENSE` dan `NOTICE`.
 
 ## Privasi (UU No. 27/2022 PDP)
 Yang disimpan hanya embedding wajah (vektor 128 angka), bukan foto. Embedding hanya disimpan bila persetujuan dicentang saat registrasi, dan bisa dihapus kapan saja dari halaman Data Anggota.

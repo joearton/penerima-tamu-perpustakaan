@@ -188,6 +188,9 @@ class RegisterPage(QWidget):
         if results[0].embedding is None:
             self.hint.setText("Wajah terlalu jauh, silakan mendekat.")
             return
+        if results[0].spoof:
+            self.hint.setText("Wajah terdeteksi dari foto/layar. Gunakan wajah asli.")
+            return
         now = time.monotonic()
         if now - self._last_sample < SAMPLE_INTERVAL:
             return

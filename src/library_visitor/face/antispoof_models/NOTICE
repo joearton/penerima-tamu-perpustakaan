@@ -1,0 +1,7 @@
+Model anti-spoofing di folder ini berasal dari proyek Silent-Face-Anti-Spoofing
+oleh Minivision AI (https://github.com/minivision-ai/Silent-Face-Anti-Spoofing),
+dirilis di bawah Apache License 2.0 (lihat file LICENSE).
+
+Modifikasi: bobot asli PyTorch (2.7_80x80_MiniFASNetV2.pth dan
+4_0_0_80x80_MiniFASNetV1SE.pth) dikonversi ke format ONNX (opset 13) dengan
+lapisan softmax ditambahkan di akhir. Arsitektur dan bobot tidak diubah.

@@ -26,7 +26,8 @@ def fake_urlopen(routes, seen):
             raise urllib.error.HTTPError(req.full_url, 404, "Not Found", {}, None)
         code, data = routes[req.full_url]
         if code != 200:
-            raise urllib.error.HTTPError(req.full_url, code, "err", {}, None)
+            fp = BytesIO(json.dumps(data).encode()) if data else None
+            raise urllib.error.HTTPError(req.full_url, code, "err", {}, fp)
         body = {"status": True, "message": "Success", "data": data}
         return FakeResponse(json.dumps(body).encode())
 
@@ -69,9 +70,9 @@ def test_unknown_category_becomes_umum(directory, monkeypatch):
 def test_not_found_and_auth_error(directory, monkeypatch):
     monkeypatch.setattr(directory_api.urllib.request, "urlopen", fake_urlopen({}, []))
     assert directory.lookup("999") is None
-    routes = {URL.format(nomor="1"): (401, None)}
+    routes = {URL.format(nomor="1"): (401, {"detail": "Rahasia API tidak valid"})}
     monkeypatch.setattr(directory_api.urllib.request, "urlopen", fake_urlopen(routes, []))
-    with pytest.raises(ExtensionError, match="ditolak"):
+    with pytest.raises(ExtensionError, match="ditolak: Rahasia API tidak valid. Pastikan"):
         directory.lookup("1")
     routes = {URL.format(nomor="1"): (429, None)}
     monkeypatch.setattr(directory_api.urllib.request, "urlopen", fake_urlopen(routes, []))

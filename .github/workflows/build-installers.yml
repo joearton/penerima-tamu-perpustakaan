@@ -1,0 +1,43 @@
+name: Build installers
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ["v*"]
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install Inno Setup
+        run: choco install innosetup -y --no-progress
+      - name: Build
+        shell: pwsh
+        run: ./packaging/windows/build.ps1
+      - uses: actions/upload-artifact@v4
+        with:
+          name: installer-windows
+          path: dist/*-setup.exe
+
+  linux:
+    # Ubuntu lama agar hasil build kompatibel dengan glibc distro yang lebih tua
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Build
+        env:
+          PYTHON: python
+        run: |
+          python -m venv .venv
+          PYTHON=.venv/bin/python bash packaging/linux/build.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: installer-linux
+          path: dist/*.tar.gz

@@ -27,6 +27,7 @@ from PySide6.QtWidgets import (
 
 from library_visitor import greeting
 from library_visitor.audio import TTS_LANGUAGES, Announcer
+from library_visitor.backups import backup_dir, list_backups
 from library_visitor.config import Settings
 from library_visitor.db import backup_database
 
@@ -60,9 +61,19 @@ class SettingsPage(QWidget):
 
         # --- Umum ---
         self.library_name = QLineEdit()
+        self.kiosk_on_start = QCheckBox("Buka Mode Kios saat aplikasi dimulai")
+        self.kiosk_show_names = QCheckBox("Tampilkan nama pengunjung di layar kios")
         general = QGroupBox("Umum")
         f = QFormLayout(general)
         f.addRow("Nama perpustakaan", self.library_name)
+        f.addRow(self.kiosk_on_start)
+        f.addRow(self.kiosk_show_names)
+        f.addRow(
+            _hint(
+                "Layar kios menghadap umum. Jika nama tidak ditampilkan, kios hanya "
+                "menunjukkan jumlah pengunjung hari ini (sapaan tetap muncul)."
+            )
+        )
 
         # --- Kamera & wajah ---
         self.camera_index = QComboBox()
@@ -71,6 +82,10 @@ class SettingsPage(QWidget):
         self.min_face_size = _spin(40, 400, " px")
         self.stable_frames = _spin(1, 30, " frame")
         self.enroll_samples = _spin(1, 20, " sampel")
+        self.multi_face = QCheckBox("Catat beberapa wajah sekaligus")
+        self.max_faces = _spin(1, 10, " wajah")
+        self.antispoof_enabled = QCheckBox("Tolak wajah dari foto/layar (anti-spoofing)")
+        self.antispoof_threshold = _dspin(0.30, 0.99, 0.01)
         camera = QGroupBox("Kamera && Pengenalan Wajah")
         f = QFormLayout(camera)
         cam_row = QHBoxLayout()
@@ -83,6 +98,22 @@ class SettingsPage(QWidget):
         f.addRow("Ukuran wajah minimal", self.min_face_size)
         f.addRow("Konfirmasi wajah", self.stable_frames)
         f.addRow("Sampel registrasi", self.enroll_samples)
+        f.addRow(self.multi_face)
+        f.addRow("Maks. wajah per frame", self.max_faces)
+        f.addRow(
+            _hint(
+                "Jika dimatikan, hanya wajah terdekat yang dicatat. Wajah yang lebih kecil dari "
+                "'Ukuran wajah minimal' (orang jauh di belakang) selalu diabaikan."
+            )
+        )
+        f.addRow(self.antispoof_enabled)
+        f.addRow("Skor wajah asli minimal", self.antispoof_threshold)
+        f.addRow(
+            _hint(
+                "Turunkan bila wajah asli sering ditolak (mis. pencahayaan buruk); "
+                "naikkan bila foto masih lolos."
+            )
+        )
 
         # --- Kunjungan & sapaan ---
         self.cooldown = _spin(0, 24 * 60, " menit")
@@ -179,7 +210,21 @@ class SettingsPage(QWidget):
                 "Kunjungan."
             )
         )
-        f.addRow(QPushButton("Backup Database...", clicked=self._backup))
+        self.auto_backup = QCheckBox("Backup otomatis setiap hari")
+        self.backup_dir = QLineEdit(placeholderText="(bawaan: data/backups)")
+        self.backup_keep = _spin(1, 365, " hari")
+        self.backup_status = QLabel()
+        dir_row = QHBoxLayout()
+        dir_row.addWidget(self.backup_dir, 1)
+        dir_row.addWidget(QPushButton("Pilih...", clicked=self._choose_backup_dir))
+        f.addRow(self.auto_backup)
+        f.addRow("Folder backup", dir_row)
+        f.addRow("Simpan backup", self.backup_keep)
+        f.addRow("Backup terakhir", self.backup_status)
+        f.addRow(
+            _hint("Sebaiknya arahkan ke disk/flashdisk lain agar data aman bila disk PC rusak.")
+        )
+        f.addRow(QPushButton("Backup Manual...", clicked=self._backup))
 
         # --- Tata letak ---
         grid = QGridLayout()
@@ -214,6 +259,17 @@ class SettingsPage(QWidget):
     def refresh(self) -> None:
         s = self._settings
         self.library_name.setText(s.library_name)
+        self.kiosk_on_start.setChecked(s.kiosk_on_start)
+        self.kiosk_show_names.setChecked(s.kiosk_show_names)
+        self.multi_face.setChecked(s.multi_face)
+        self.max_faces.setValue(s.max_faces)
+        self.antispoof_enabled.setChecked(s.antispoof_enabled)
+        self.antispoof_threshold.setValue(s.antispoof_threshold)
+        self.auto_backup.setChecked(s.auto_backup_enabled)
+        self.backup_dir.setText(s.backup_dir)
+        self.backup_keep.setValue(s.backup_keep)
+        existing = list_backups(backup_dir(s))
+        self.backup_status.setText(existing[0].name if existing else "belum ada")
         self._scan_cameras()
         self.match_threshold.setValue(s.match_threshold)
         self.detect_score.setValue(s.detect_score)
@@ -242,6 +298,15 @@ class SettingsPage(QWidget):
     def _values(self) -> dict:
         return {
             "library_name": self.library_name.text().strip() or "Perpustakaan",
+            "kiosk_on_start": self.kiosk_on_start.isChecked(),
+            "kiosk_show_names": self.kiosk_show_names.isChecked(),
+            "multi_face": self.multi_face.isChecked(),
+            "max_faces": self.max_faces.value(),
+            "antispoof_enabled": self.antispoof_enabled.isChecked(),
+            "antispoof_threshold": self.antispoof_threshold.value(),
+            "auto_backup_enabled": self.auto_backup.isChecked(),
+            "backup_dir": self.backup_dir.text().strip(),
+            "backup_keep": self.backup_keep.value(),
             "camera_index": self.camera_index.currentData(),
             "match_threshold": self.match_threshold.value(),
             "detect_score": self.detect_score.value(),
@@ -328,6 +393,11 @@ class SettingsPage(QWidget):
         self._announcer.apply_settings()
         self._announcer.announce(self.preview.text())
         s.update(original)
+
+    def _choose_backup_dir(self) -> None:
+        path = QFileDialog.getExistingDirectory(self, "Pilih folder backup")
+        if path:
+            self.backup_dir.setText(path)
 
     def _backup(self) -> None:
         default = f"library_visitor_backup_{datetime.now():%Y%m%d_%H%M}.db"

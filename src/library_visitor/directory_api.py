@@ -43,6 +43,17 @@ def person_from_api(data: dict) -> DirectoryPerson:
     )
 
 
+def _error_detail(exc: urllib.error.HTTPError) -> str:
+    """Pesan singkat dari body galat server ({"detail": ...} atau {"message": ...})."""
+    try:
+        body = json.loads(exc.read(2000))
+    except (ValueError, OSError, TypeError):
+        return ""
+    if not isinstance(body, dict):
+        return ""
+    return str(body.get("detail") or body.get("message") or "")[:200]
+
+
 class ApiDirectory:
     label = "Cari di direktori"
 
@@ -81,7 +92,12 @@ class ApiDirectory:
             if exc.code == 404:
                 return None
             if exc.code in (401, 403):
-                raise ExtensionError("API key direktori ditolak (cek DIRECTORY_API_*)") from None
+                detail = _error_detail(exc)
+                raise ExtensionError(
+                    "API key direktori ditolak"
+                    + (f": {detail}" if detail else "")
+                    + ". Pastikan DIRECTORY_API_KEY/SECRET di .env tersalin lengkap."
+                ) from None
             if exc.code == 429:
                 raise ExtensionError(
                     "Batas permintaan ke direktori terlampaui, coba lagi nanti"

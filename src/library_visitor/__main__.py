@@ -73,6 +73,9 @@ def main() -> int:
             return 0
 
     # Import Qt setelah model siap agar --download-models tetap jalan di server tanpa layar
+    from pathlib import Path
+
+    from PySide6.QtGui import QIcon
     from PySide6.QtWidgets import QApplication
 
     from library_visitor.db import create_session_factory
@@ -81,7 +84,9 @@ def main() -> int:
     from library_visitor.ui.main_window import MainWindow
 
     app = QApplication(sys.argv)
-    app.setApplicationName("Library Visitor")
+    app.setApplicationName("Penerima Tamu Perpustakaan")
+    app.setDesktopFileName("penerima-tamu-perpustakaan")  # cocokkan ikon di Wayland/GNOME
+    app.setWindowIcon(QIcon(str(Path(__file__).with_name("ui") / "icon.png")))
 
     service = VisitorService(
         create_session_factory(settings.database_path),
@@ -93,6 +98,8 @@ def main() -> int:
     window = MainWindow(service, settings, extensions)
     window.show()
     window.start_camera()
+    if settings.kiosk_on_start:
+        window.open_kiosk()
     return app.exec()
 
 

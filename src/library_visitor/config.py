@@ -14,12 +14,38 @@ from pathlib import Path
 log = logging.getLogger(__name__)
 
 
+APP_DIR_NAME = "PenerimaTamuPerpustakaan"
+
+
+def is_frozen() -> bool:
+    return bool(getattr(sys, "frozen", False))
+
+
+def user_data_home() -> Path:
+    """Folder data per user untuk versi terinstal (folder instalasi biasanya read-only)."""
+    if os.name == "nt":
+        base = Path(os.environ.get("LOCALAPPDATA") or Path.home() / "AppData" / "Local")
+        return base / APP_DIR_NAME
+    if sys.platform == "darwin":
+        return Path.home() / "Library" / "Application Support" / APP_DIR_NAME
+    base = Path(os.environ.get("XDG_DATA_HOME") or Path.home() / ".local" / "share")
+    return base / "penerima-tamu-perpustakaan"
+
+
+def bundled_models_dir() -> Path | None:
+    """Model wajah yang ikut dibundel installer (PyInstaller), bila ada."""
+    if not is_frozen():
+        return None
+    bundle = Path(getattr(sys, "_MEIPASS", Path(sys.executable).resolve().parent))
+    path = bundle / "models"
+    return path if path.is_dir() else None
+
+
 def default_home() -> Path:
     if env := os.environ.get("LV_HOME"):
         return Path(env)
-    # Saat dibundel PyInstaller, simpan data di samping file executable
-    if getattr(sys, "frozen", False):
-        return Path(sys.executable).resolve().parent
+    if is_frozen():
+        return user_data_home()
     return Path(__file__).resolve().parents[2]
 
 
@@ -29,6 +55,9 @@ class Settings:
 
     # Umum
     library_name: str = "Perpustakaan"
+    kiosk_on_start: bool = False  # langsung buka jendela Mode Kios saat aplikasi dimulai
+    # Layar kios menghadap umum: default hanya tampilkan jumlah, bukan nama pengunjung lain
+    kiosk_show_names: bool = False
 
     # Kamera & pengenalan wajah
     camera_index: int = 0
@@ -39,7 +68,13 @@ class Settings:
     min_face_size: int = 90
     # Frame berturut-turut yang harus cocok sebelum kunjungan dicatat
     stable_frames: int = 5
+    # Beberapa wajah: catat semua anggota yang dikenali dalam satu frame (bukan hanya terdekat)
+    multi_face: bool = True
+    max_faces: int = 4
     enroll_samples: int = 5
+    # Anti-spoofing (MiniFASNet): tolak wajah dari foto/layar
+    antispoof_enabled: bool = True
+    antispoof_threshold: float = 0.80  # skor "wajah asli" minimal (0-1)
 
     # Kunjungan: anggota yang sama tidak dicatat ulang dalam rentang ini
     visit_cooldown_minutes: int = 30
@@ -59,6 +94,11 @@ class Settings:
     speak_repeat: bool = False  # ucapkan juga sapaan "sudah tercatat"
     volume: int = 80
 
+    # Backup otomatis harian
+    auto_backup_enabled: bool = True
+    backup_dir: str = ""  # kosong = data/backups
+    backup_keep: int = 14  # jumlah backup harian yang disimpan
+
     # Keamanan: tab admin dikunci bila PIN diisi dan/atau admin login eksternal diatur
     admin_pin_hash: str = ""
     admin_usernames: str = ""  # username dari login eksternal, pisahkan dengan koma
@@ -66,7 +106,7 @@ class Settings:
 
     @property
     def models_dir(self) -> Path:
-        return self.home / "models"
+        return bundled_models_dir() or self.home / "models"
 
     @property
     def data_dir(self) -> Path:

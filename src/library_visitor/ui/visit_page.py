@@ -2,11 +2,14 @@ from __future__ import annotations
 
 import logging
 import time
+from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime
 
-from PySide6.QtCore import Qt, QTimer
+from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtGui import QImage
 from PySide6.QtWidgets import (
+    QDialog,
+    QDialogButtonBox,
     QFormLayout,
     QGroupBox,
     QHBoxLayout,
@@ -21,9 +24,10 @@ from library_visitor import greeting
 from library_visitor.audio import Announcer
 from library_visitor.camera import FaceResult
 from library_visitor.config import Settings
-from library_visitor.reports import METHOD_LABELS
-from library_visitor.services import ServiceError, VisitorService, VisitResult, visitor_name
-from library_visitor.ui.widgets import VideoView, fill_table, make_table
+from library_visitor.extensions import DirectoryPerson, ExtensionError, MemberDirectory
+from library_visitor.services import ServiceError, VisitorService, VisitResult
+from library_visitor.ui.today_visits import TodayVisitsCard
+from library_visitor.ui.widgets import VideoView
 
 log = logging.getLogger(__name__)
 
@@ -36,27 +40,72 @@ INFO_STYLE = "background:#2471a3;"
 ERROR_STYLE = "background:#c0392b;"
 
 
+class GuestDialog(QDialog):
+    """Form tamu ringkas untuk mode kios."""
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.setWindowTitle("Tamu (non-anggota)")
+        self.setMinimumWidth(460)
+        self.setStyleSheet("font-size:18px;")
+        self.name = QLineEdit()
+        self.purpose = QLineEdit(placeholderText="mis. membaca, riset, kunjungan dinas")
+        form = QFormLayout(self)
+        form.addRow("Nama", self.name)
+        form.addRow("Keperluan", self.purpose)
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
+        )
+        buttons.button(QDialogButtonBox.StandardButton.Ok).setText("Catat Kunjungan")
+        buttons.button(QDialogButtonBox.StandardButton.Cancel).setText("Batal")
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        form.addRow(buttons)
+
+
 class VisitPage(QWidget):
-    def __init__(self, service: VisitorService, settings: Settings, announcer: Announcer) -> None:
+    """Halaman pencatatan kunjungan. `kiosk=True` memakai tata letak besar untuk pengunjung."""
+
+    members_changed = Signal()
+    visit_recorded = Signal()
+    kiosk_requested = Signal()
+    _lookup_done = Signal(str, object)  # nomor, DirectoryPerson | None
+    _lookup_failed = Signal(str)
+
+    def __init__(
+        self,
+        service: VisitorService,
+        settings: Settings,
+        announcer: Announcer,
+        directory: MemberDirectory | None = None,
+        kiosk: bool = False,
+    ) -> None:
         super().__init__()
+        self._kiosk = kiosk
+        self._directory = directory
+        self._executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="visit-lookup")
+        self._lookup_done.connect(self._on_lookup_done)
+        self._lookup_failed.connect(self._on_lookup_failed)
         self._service = service
         self._settings = settings
         self._announcer = announcer
-        self._candidate: int | None = None
-        self._streak = 0
+        self._streaks: dict[int, int] = {}  # member_id -> frame berturut-turut dikenali
+        self._spoof_streak = 0
         self._last_handled: dict[int, float] = {}
 
         self.title = QLabel()
-        self.title.setStyleSheet("font-size:24px; font-weight:bold;")
+        self.title.setStyleSheet(f"font-size:{34 if kiosk else 24}px; font-weight:bold;")
         self.clock = QLabel()
         self.clock.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-        self.clock.setStyleSheet("font-size:18px; color:#555;")
+        self.clock.setStyleSheet(f"font-size:{26 if kiosk else 18}px; color:#555;")
         clock_timer = QTimer(self, interval=1000)
         clock_timer.timeout.connect(self._tick)
         clock_timer.start()
         header = QHBoxLayout()
         header.addWidget(self.title, 1)
         header.addWidget(self.clock)
+        if not kiosk:
+            header.addWidget(QPushButton("Mode Kios", clicked=lambda: self.kiosk_requested.emit()))
 
         self.video = VideoView()
         self.banner = QLabel()
@@ -69,38 +118,55 @@ class VisitPage(QWidget):
         left.addWidget(self.video, 1)
         left.addWidget(self.banner)
 
-        self.today_label = QLabel()
-        self.today_label.setStyleSheet("font-size:16px; font-weight:bold;")
-
-        self.member_no = QLineEdit(placeholderText="No. anggota / NIM / scan barcode")
+        self.member_no = QLineEdit()
         self.member_no.returnPressed.connect(self._record_manual)
         manual_btn = QPushButton("Catat", clicked=self._record_manual)
-        manual_box = QGroupBox("Input manual")
-        manual_row = QHBoxLayout(manual_box)
-        manual_row.addWidget(self.member_no, 1)
-        manual_row.addWidget(manual_btn)
-
-        self.guest_name = QLineEdit()
-        self.guest_purpose = QLineEdit()
-        guest_box = QGroupBox("Tamu (non-anggota)")
-        guest_form = QFormLayout(guest_box)
-        guest_form.addRow("Nama", self.guest_name)
-        guest_form.addRow("Keperluan", self.guest_purpose)
-        guest_form.addRow(QPushButton("Catat Tamu", clicked=self._record_guest))
-
-        self.table = make_table(["Jam", "Nama", "Metode"])
-
+        self.today = TodayVisitsCard()
         right = QVBoxLayout()
-        right.addWidget(self.today_label)
-        right.addWidget(manual_box)
-        right.addWidget(guest_box)
-        right.addWidget(QLabel("Kunjungan hari ini"))
-        right.addWidget(self.table, 1)
+
+        if kiosk:
+            self.member_no.setPlaceholderText("Scan kartu atau ketik NIM / NIDN, lalu Enter")
+            self.member_no.setMinimumHeight(52)
+            self.member_no.setStyleSheet("font-size:20px; padding:6px 10px;")
+            manual_btn.setMinimumHeight(52)
+            manual_btn.setStyleSheet("font-size:18px; font-weight:bold; padding:0 18px;")
+            scan_row = QHBoxLayout()
+            scan_row.addWidget(self.member_no, 1)
+            scan_row.addWidget(manual_btn)
+            guest_btn = QPushButton("Saya tamu (bukan anggota)", clicked=self._guest_dialog)
+            guest_btn.setMinimumHeight(48)
+            guest_btn.setStyleSheet("font-size:17px;")
+            hint = QLabel("Esc: keluar dari mode kios (admin)")
+            hint.setStyleSheet("color: palette(placeholder-text);")
+            hint.setAlignment(Qt.AlignmentFlag.AlignRight)
+            right.addWidget(self.today, 1)
+            right.addLayout(scan_row)
+            right.addWidget(guest_btn)
+            right.addWidget(hint)
+        else:
+            self.member_no.setPlaceholderText("No. anggota / NIM / scan barcode")
+            manual_box = QGroupBox("Input manual")
+            manual_row = QHBoxLayout(manual_box)
+            manual_row.addWidget(self.member_no, 1)
+            manual_row.addWidget(manual_btn)
+
+            self.guest_name = QLineEdit()
+            self.guest_purpose = QLineEdit()
+            guest_box = QGroupBox("Tamu (non-anggota)")
+            guest_form = QFormLayout(guest_box)
+            guest_form.addRow("Nama", self.guest_name)
+            guest_form.addRow("Keperluan", self.guest_purpose)
+            guest_form.addRow(QPushButton("Catat Tamu", clicked=self._record_guest))
+            right.addWidget(manual_box)
+            right.addWidget(guest_box)
+            right.addWidget(self.today, 1)
 
         body = QHBoxLayout()
         body.addLayout(left, 3)
         body.addLayout(right, 2)
         layout = QVBoxLayout(self)
+        if kiosk:
+            layout.setContentsMargins(24, 16, 24, 16)
         layout.addLayout(header)
         layout.addLayout(body, 1)
 
@@ -110,6 +176,9 @@ class VisitPage(QWidget):
 
     def apply_settings(self) -> None:
         self.title.setText(self._settings.library_name)
+        if self._kiosk:
+            self.today.set_show_names(self._settings.kiosk_show_names)
+            self.refresh()
         self._banner_timer.setInterval(self._settings.banner_seconds * 1000)
         if not self._banner_timer.isActive():
             self._idle_banner()
@@ -118,100 +187,175 @@ class VisitPage(QWidget):
 
     def on_frame(self, image: QImage, results: list[FaceResult]) -> None:
         self.video.show_image(image)
-        match = results[0].match if results else None  # hanya wajah terbesar (terdekat)
-        if match is None:
-            self._candidate, self._streak = None, 0
-            return
-        if match.member_id == self._candidate:
-            self._streak += 1
-        else:
-            self._candidate, self._streak = match.member_id, 1
-        if self._streak < self._settings.stable_frames:
-            return
+        # Hasil sudah urut dari wajah terbesar (terdekat). Mode satu wajah: hanya yang terdekat.
+        faces = results if self._settings.multi_face else results[:1]
 
+        if any(r.spoof for r in faces):
+            self._spoof_streak += 1
+            if self._spoof_streak == self._settings.stable_frames:
+                score = min(r.real_score for r in faces if r.spoof)
+                log.warning("Wajah palsu terdeteksi (skor asli %.2f)", score)
+                self._show(
+                    "Wajah tidak terdeteksi asli. Hadapkan wajah langsung ke kamera.",
+                    ERROR_STYLE,
+                )
+        else:
+            self._spoof_streak = 0
+
+        # Konfirmasi per orang: anggota harus dikenali di N frame berturut-turut
+        seen = {r.match.member_id: r.match for r in faces if r.match and not r.spoof}
+        self._streaks = {mid: self._streaks.get(mid, 0) + 1 for mid in seen}
         now = time.monotonic()
-        if now - self._last_handled.get(match.member_id, 0) < RECHECK_SECONDS:
+        ready = [
+            seen[mid]
+            for mid, count in self._streaks.items()
+            if count >= self._settings.stable_frames
+            and now - self._last_handled.get(mid, 0) >= RECHECK_SECONDS
+        ]
+        if not ready:
             return
-        self._last_handled[match.member_id] = now
-        self._streak = 0
-        try:
-            result = self._service.record_member_visit(match.member_id, "face", match.score)
-        except ServiceError as exc:
-            self._show(str(exc), ERROR_STYLE)
-            return
-        self._greet(result)
+        visit_results = []
+        for match in ready:
+            self._last_handled[match.member_id] = now
+            self._streaks[match.member_id] = 0
+            try:
+                visit_results.append(
+                    self._service.record_member_visit(match.member_id, "face", match.score)
+                )
+            except ServiceError as exc:
+                self._show(str(exc), ERROR_STYLE)
+        if visit_results:
+            self._greet_many(visit_results)
 
     # ---------- input manual ----------
 
     def _record_manual(self) -> None:
-        if not self.member_no.text().strip():
+        number = self.member_no.text().strip()
+        if not number:
+            return
+        if self._service.get_member_by_no(number) is None and self._directory is not None:
+            # Belum terdaftar lokal: ambil dari direktori, daftarkan tanpa wajah, lalu catat
+            self.member_no.setEnabled(False)
+            self._show(f"Mencari {number} di direktori...", INFO_STYLE)
+            self._executor.submit(self._lookup_worker, number)
             return
         try:
-            result = self._service.record_manual_visit(self.member_no.text())
+            result = self._service.record_manual_visit(number)
         except ServiceError as exc:
             self._show(str(exc), ERROR_STYLE)
             return
         self.member_no.clear()
         self._greet(result)
 
-    def _record_guest(self) -> None:
-        name = self.guest_name.text().strip()
+    def _lookup_worker(self, number: str) -> None:
         try:
-            self._service.record_guest_visit(name, self.guest_purpose.text())
+            self._lookup_done.emit(number, self._directory.lookup(number))
+        except ExtensionError as exc:
+            self._lookup_failed.emit(str(exc))
+
+    def _on_lookup_done(self, number: str, person: DirectoryPerson | None) -> None:
+        self.member_no.setEnabled(True)
+        self.member_no.setFocus()
+        if person is None:
+            self._show(f"No. {number} tidak ditemukan. Silakan isi sebagai tamu.", ERROR_STYLE)
+            return
+        try:
+            member = self._service.save_member(
+                number,
+                person.name,
+                person.category,
+                unit=person.unit,
+                directory_status=person.status,
+            )
+            result = self._service.record_member_visit(member.id, "manual")
         except ServiceError as exc:
             self._show(str(exc), ERROR_STYLE)
             return
+        log.info("Anggota baru dari direktori saat kunjungan: %s", number)
+        self.member_no.clear()
+        self.members_changed.emit()
+        self._greet(result)
+
+    def _on_lookup_failed(self, message: str) -> None:
+        self.member_no.setEnabled(True)
+        self.member_no.setFocus()
+        self._show(message, ERROR_STYLE)
+
+    def _record_guest(self) -> None:
+        if self.record_guest(self.guest_name.text(), self.guest_purpose.text()):
+            self.guest_name.clear()
+            self.guest_purpose.clear()
+
+    def _guest_dialog(self) -> None:
+        dialog = GuestDialog(self)
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            self.record_guest(dialog.name.text(), dialog.purpose.text())
+        self.member_no.setFocus()
+
+    def record_guest(self, name: str, purpose: str) -> bool:
+        name = name.strip()
+        try:
+            self._service.record_guest_visit(name, purpose)
+        except ServiceError as exc:
+            self._show(str(exc), ERROR_STYLE)
+            return False
         s = self._settings
         text = greeting.render(s.guest_template, name, "Tamu", s.library_name)
         self._show(text, OK_STYLE)
         self._announcer.announce(text)
-        self.guest_name.clear()
-        self.guest_purpose.clear()
         self.refresh()
+        self.visit_recorded.emit()
+        return True
 
     # ---------- tampilan ----------
 
     def _greet(self, result: VisitResult) -> None:
+        self._greet_many([result])
+
+    def _greet_many(self, results: list[VisitResult]) -> None:
+        """Satu sapaan (dan satu ucapan suara) untuk semua yang tercatat bersamaan."""
         s = self._settings
-        member = result.member
-        if result.visit is None:
-            text = greeting.render(s.repeat_template, member.name, member.category, s.library_name)
+        new = [r.member for r in results if r.visit is not None]
+        repeat = [r.member for r in results if r.visit is None]
+        if not new:
+            people = [(m.name, m.category) for m in repeat]
+            text = greeting.render_group(s.repeat_template, people, s.library_name)
             self._show(text, INFO_STYLE)
             if s.speak_repeat:
                 self._announcer.announce(text, chime=False)
             return
-        log.info("Kunjungan: %s (%s) via %s", member.name, member.member_no, result.visit.method)
-        text = greeting.render(s.greeting_template, member.name, member.category, s.library_name)
+        for r in results:
+            if r.visit is not None:
+                m = r.member
+                log.info("Kunjungan: %s (%s) via %s", m.name, m.member_no, r.visit.method)
+        people = [(m.name, m.category) for m in new]
+        text = greeting.render_group(s.greeting_template, people, s.library_name)
         self._show(text, OK_STYLE)
         self._announcer.announce(text)
         self.refresh()
+        self.visit_recorded.emit()
 
     def _show(self, text: str, style: str) -> None:
         self.banner.setText(text)
         self.banner.setStyleSheet(
-            "font-size:24px; font-weight:bold; color:white; padding:14px; border-radius:6px;"
-            + style
+            f"font-size:{32 if self._kiosk else 24}px; font-weight:bold; color:white;"
+            f" padding:{22 if self._kiosk else 14}px; border-radius:8px;" + style
         )
         if style != IDLE_STYLE:
             self._banner_timer.start()
 
     def _idle_banner(self) -> None:
-        self._show("Silakan menghadap kamera", IDLE_STYLE)
+        if self._kiosk:
+            self._show("Silakan menghadap kamera atau scan kartu anggota", IDLE_STYLE)
+        else:
+            self._show("Silakan menghadap kamera", IDLE_STYLE)
 
     def _tick(self) -> None:
         self.clock.setText(datetime.now().strftime("%d-%m-%Y  %H:%M:%S"))
 
     def refresh(self) -> None:
         today = date.today()
-        visits = self._service.visits_between(today, today)
-        self.today_label.setText(f"Pengunjung hari ini: {len(visits)}")
-        fill_table(
-            self.table,
-            [
-                [v.visited_at.strftime("%H:%M"), visitor_name(v), METHOD_LABELS.get(v.method)]
-                for v in visits
-            ],
-        )
+        self.today.set_visits(self._service.visits_between(today, today))
 
     def on_camera_error(self, message: str) -> None:
         self.video.show_message(message)

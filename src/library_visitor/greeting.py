@@ -31,6 +31,17 @@ def salutation(now: datetime | None = None) -> str:
     return "Selamat malam"
 
 
+def join_names(names: list[str]) -> str:
+    """["A"] -> "A"; ["A", "B"] -> "A dan B"; ["A", "B", "C"] -> "A, B, dan C"."""
+    if len(names) <= 2:
+        return " dan ".join(names)
+    return ", ".join(names[:-1]) + ", dan " + names[-1]
+
+
+def _first_name(name: str) -> str:
+    return name.split()[0] if name.split() else name
+
+
 def render(
     template: str,
     name: str,
@@ -38,11 +49,22 @@ def render(
     library: str = "",
     now: datetime | None = None,
 ) -> str:
+    return render_group(template, [(name, category)], library, now)
+
+
+def render_group(
+    template: str,
+    people: list[tuple[str, str]],
+    library: str = "",
+    now: datetime | None = None,
+) -> str:
+    """Sapaan untuk satu atau beberapa orang sekaligus; `people` berisi (nama, kategori)."""
+    categories = {category for _, category in people}
     values = _Keep(
         salam=salutation(now),
-        nama=name,
-        nama_depan=name.split()[0] if name.split() else name,
-        kategori=category,
+        nama=join_names([name for name, _ in people]),
+        nama_depan=join_names([_first_name(name) for name, _ in people]),
+        kategori=categories.pop() if len(categories) == 1 else "",
         perpustakaan=library,
     )
     try:

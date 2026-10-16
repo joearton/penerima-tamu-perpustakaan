@@ -35,3 +35,14 @@ def test_greeting_render():
     # Placeholder tak dikenal dan kurung tak berpasangan tidak membuat crash
     assert greeting.render("Hai {nama} {lain}", "Ani") == "Hai Ani {lain}"
     assert greeting.render("Hai {nama", "Ani") == "Hai {nama"
+
+
+def test_render_group_joins_names():
+    morning = datetime(2026, 1, 1, 8, 0)
+    people = [("Siti Aminah", "Mahasiswa"), ("Budi Santoso", "Dosen"), ("Rina", "Mahasiswa")]
+    text = greeting.render_group("{salam}, {nama_depan}! ({kategori})", people, "P", morning)
+    assert text == "Selamat pagi, Siti, Budi, dan Rina! ()"
+    two = greeting.render_group("{nama}", people[:2])
+    assert two == "Siti Aminah dan Budi Santoso"
+    same_category = greeting.render_group("{kategori}", [people[0], people[2]])
+    assert same_category == "Mahasiswa"
