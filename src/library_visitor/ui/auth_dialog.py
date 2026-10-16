@@ -42,9 +42,16 @@ class AdminAuthDialog(QDialog):
     _login_failed = Signal(str)
 
     def __init__(
-        self, settings: Settings, provider: AdminLoginProvider | None, parent=None
+        self,
+        settings: Settings,
+        provider: AdminLoginProvider | None,
+        parent=None,
+        allow_quit: bool = False,
     ) -> None:
+        """`allow_quit`: tampilkan tombol "Tutup Aplikasi" (tanpa PIN) agar admin yang lupa PIN
+        tidak terkunci di Mode Kios. Menutup aplikasi tidak membuka akses data/pengaturan."""
         super().__init__(parent)
+        self.quit_requested = False
         self.setWindowTitle("Akses Admin")
         self.setMinimumWidth(380)
         self._settings = settings
@@ -77,6 +84,15 @@ class AdminAuthDialog(QDialog):
         layout.addWidget(self.status)
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Cancel)
         buttons.rejected.connect(self.reject)
+        if allow_quit:
+            quit_btn = variant(QPushButton("Tutup Aplikasi"), "danger")
+            quit_btn.setAutoDefault(False)  # Enter di kolom PIN tidak boleh menutup aplikasi
+            quit_btn.clicked.connect(self._quit)
+            buttons.addButton(quit_btn, QDialogButtonBox.ButtonRole.DestructiveRole)
+            hint = QLabel("Lupa PIN? Tutup aplikasi, lalu reset PIN: library-visitor --reset-pin")
+            hint.setWordWrap(True)
+            hint.setStyleSheet("color:#64748B; font-size:11px;")
+            layout.addWidget(hint)
         layout.addWidget(buttons)
 
     def _check_pin(self) -> None:
@@ -84,8 +100,14 @@ class AdminAuthDialog(QDialog):
             self.admin_name = "PIN lokal"
             self.accept()
         else:
+            log.warning("PIN admin salah di aplikasi (panjang input %d)", len(self.pin.text()))
             self.pin.clear()
             self.status.setText("PIN salah.")
+
+    def _quit(self) -> None:
+        log.info("Aplikasi ditutup dari dialog PIN (tanpa PIN)")
+        self.quit_requested = True
+        self.reject()
 
     def _start_login(self) -> None:
         try:

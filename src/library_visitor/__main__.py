@@ -42,6 +42,19 @@ def lookup_cli(directory: MemberDirectory | None, number: str) -> int:
     return 0
 
 
+def reset_pin_cli(settings: Settings, pin: str) -> int:
+    """Ganti PIN admin dari terminal. Butuh akses ke PC ini, bukan dari layar kios."""
+    pin = pin.strip()
+    if len(pin) < 4 or not pin.isdigit():
+        print("PIN harus berupa angka, minimal 4 digit.")
+        return 1
+    settings.set_pin(pin)
+    settings.save()
+    log.info("PIN admin direset dari baris perintah")
+    print("PIN admin diganti. Bila aplikasi sedang terbuka, tutup lalu buka lagi.")
+    return 0
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(prog="library-visitor")
     parser.add_argument(
@@ -49,6 +62,11 @@ def main() -> int:
     )
     parser.add_argument(
         "--lookup", metavar="NOMOR", help="tes direktori anggota: cari satu nomor lalu keluar"
+    )
+    parser.add_argument(
+        "--reset-pin",
+        metavar="PIN",
+        help="ganti PIN admin (mis. bila lupa) lalu keluar; tutup aplikasi dulu",
     )
     args = parser.parse_args()
 
@@ -61,6 +79,9 @@ def main() -> int:
 
     if args.lookup:
         return lookup_cli(extensions.directory, args.lookup)
+
+    if args.reset_pin is not None:
+        return reset_pin_cli(settings, args.reset_pin)
 
     if args.download_models or missing_models(settings.models_dir):
         try:

@@ -244,9 +244,13 @@ class MainWindow(QMainWindow):
             self._settings, self._extensions.admin_login
         )
 
-    def _authenticate(self, parent: QWidget | None = None) -> bool:
-        dialog = AdminAuthDialog(self._settings, self._extensions.admin_login, parent or self)
+    def _authenticate(self, parent: QWidget | None = None, allow_quit: bool = False) -> bool:
+        dialog = AdminAuthDialog(
+            self._settings, self._extensions.admin_login, parent or self, allow_quit=allow_quit
+        )
         if dialog.exec() != QDialog.DialogCode.Accepted:
+            if dialog.quit_requested:
+                QTimer.singleShot(0, self.close)  # closeEvent ikut menutup jendela kios
             return False
         self._unlocked = True
         self.statusBar().showMessage(f"Mode admin: {dialog.admin_name}", 10000)
@@ -280,7 +284,7 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage("Mode Kios aktif (Esc di jendela kios untuk keluar)")
 
     def _kiosk_exit_allowed(self, parent: QWidget) -> bool:
-        return not self._lock_enabled() or self._authenticate(parent)
+        return not self._lock_enabled() or self._authenticate(parent, allow_quit=True)
 
     def _on_kiosk_closed(self) -> None:
         self._kiosk.deleteLater()

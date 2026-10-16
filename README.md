@@ -55,6 +55,10 @@ Lokasi folder data/model bisa dipindah dengan environment variable `LV_HOME`.
 
 Placeholder sapaan: `{salam}`, `{nama}`, `{nama_depan}`, `{kategori}`, `{perpustakaan}`.
 
+**Lupa PIN admin?** Tutup aplikasi (dari Mode Kios, tekan Esc lalu **Tutup Aplikasi**), kemudian jalankan `library-visitor --reset-pin <PIN baru>` (versi terinstal: `penerima-tamu --reset-pin <PIN baru>`). PIN berupa angka, minimal 4 digit.
+
+Panduan pengguna bergambar ada di [`docs/Panduan-Penerima-Tamu-Perpustakaan.pdf`](docs/Panduan-Penerima-Tamu-Perpustakaan.pdf).
+
 > gTTS membutuhkan internet dan mengirim teks sapaan (termasuk nama anggota) ke server Google.
 > Matikan "Ucapkan sapaan" bila hal ini tidak diizinkan kebijakan privasi instansi.
 
