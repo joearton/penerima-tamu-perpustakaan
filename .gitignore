@@ -9,3 +9,6 @@ models/*.onnx
 models/*.part
 data/
 .env
+# Lisensi & kunci penanda tangan tidak boleh masuk repo publik
+*.key
+*.pem

@@ -81,3 +81,31 @@ def test_single_face_mode_and_spoof(setup):
         page.on_frame(IMG, frame(service, [2], spoof={2}))  # wajah palsu tidak dicatat
     assert page.today.count.text() == "1"
     assert "tidak terdeteksi asli" in page.banner.text()
+
+
+def test_manual_input_autocompletes_names_except_in_kiosk(setup, qt_widgets):
+    settings, service, page, announcer, _ = setup
+    completer = page.member_no.completer()
+    assert completer is not None
+    page.member_no.textEdited.emit("budi")
+    assert completer.model().index(0, 0).data(completer.completionRole()) == "A1"
+    kiosk = VisitPage(service, settings, announcer, kiosk=True)
+    qt_widgets(kiosk)
+    assert kiosk.member_no.completer() is None  # nama anggota lain tidak tampil di layar publik
+
+
+def test_camera_and_form_panels_are_resizable_and_remembered(setup, qt_widgets):
+    from PySide6.QtCore import QTimer
+    from PySide6.QtWidgets import QSplitter
+
+    settings, service, page, announcer, _ = setup
+    splitter = page.findChild(QSplitter)
+    assert splitter is not None and splitter.count() == 2
+    splitter.setSizes([300, 700])
+    splitter.splitterMoved.emit(300, 1)
+    splitter.findChild(QTimer).timeout.emit()  # simpan tanpa menunggu jeda
+    saved = Settings.load(settings.home).splitter_sizes["visit"]
+    assert saved == splitter.sizes() and len(saved) == 2
+    reopened = VisitPage(service, settings, announcer)
+    qt_widgets(reopened)
+    assert reopened.findChild(QSplitter).sizes() == saved

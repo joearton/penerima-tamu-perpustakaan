@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Callable, Iterator
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Protocol
 
 log = logging.getLogger(__name__)
@@ -25,6 +25,9 @@ class DirectoryPerson:
     category: str  # salah satu services.CATEGORIES
     unit: str
     status: str
+    # Foto profil untuk ditampilkan saja (hanya di memori, tidak pernah disimpan)
+    photo: bytes = field(default=b"", compare=False, repr=False)
+    photo_url: str = field(default="", compare=False, repr=False)
 
 
 @dataclass(frozen=True)

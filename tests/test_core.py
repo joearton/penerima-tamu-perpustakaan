@@ -72,3 +72,19 @@ def test_engine_loads_and_handles_empty_frame():
 
     engine = FaceEngine(settings.models_dir)
     assert engine.detect(np.zeros((480, 640, 3), dtype=np.uint8)) == []
+
+
+def test_excel_includes_library_identity(service, tmp_path):
+    import pandas as pd
+
+    s = Settings(home=tmp_path)
+    s.library_name, s.licensee, s.library_address = "Perpustakaan Pusat", "Univ Contoh", "Jl. A"
+    service.record_guest_visit("Tamu", "Riset")
+    today = date.today()
+    path = tmp_path / "r.xlsx"
+    export_excel(service, today, today, path, s)
+    sheets = pd.read_excel(path, sheet_name=None)
+    assert list(sheets) == ["Info", "Detail", "Rekap Harian"]
+    info = dict(zip(sheets["Info"]["Keterangan"], sheets["Info"]["Isi"], strict=True))
+    assert info["Perpustakaan"] == "Perpustakaan Pusat" and info["Institusi"] == "Univ Contoh"
+    assert "Kontak" not in info  # field kosong tidak ditulis

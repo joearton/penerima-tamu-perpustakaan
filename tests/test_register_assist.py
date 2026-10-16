@@ -96,3 +96,33 @@ def test_suggest_box_hidden_without_gallery(env):
     page = RegisterPage(service, settings, None, FaceGallery(sessions))
     track(page)
     assert page.suggest_box.isHidden()
+
+
+def test_lookup_shows_directory_photo(env, monkeypatch):
+    from PySide6.QtCore import QBuffer, QByteArray, QIODevice
+    from PySide6.QtGui import QImage
+
+    settings, service, _, track = env
+    image = QImage(40, 50, QImage.Format.Format_RGB32)
+    image.fill(0x3366AA)
+    raw = QByteArray()
+    buffer = QBuffer(raw)
+    buffer.open(QIODevice.OpenModeFlag.WriteOnly)
+    image.save(buffer, "PNG")
+    person = DirectoryPerson("2501234", "Budi", "Mahasiswa", "SI", "Aktif", photo=bytes(raw))
+
+    class PhotoDirectory(FakeDirectory):
+        def lookup(self, number):
+            return person
+
+        def fetch_photo(self, p):
+            return p.photo
+
+    page = RegisterPage(service, settings, PhotoDirectory())
+    track(page)
+    page.member_no.setText("2501234")
+    page._lookup_worker("2501234")  # langsung (tanpa thread) agar deterministik
+    assert page.name.text() == "Budi"
+    assert not page.photo.isHidden() and page.photo.pixmap().width() > 0
+    page.member_no.textEdited.emit("2501")
+    assert page.photo.isHidden()

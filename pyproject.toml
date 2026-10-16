@@ -18,6 +18,8 @@ dependencies = [
     "openpyxl>=3.1",
     "gTTS>=2.5",
     "python-dotenv>=1.0",
+    # Verifikasi tanda tangan lisensi (Ed25519)
+    "cryptography>=42",
 ]
 
 [project.optional-dependencies]
@@ -31,7 +33,7 @@ library-visitor = "library_visitor.__main__:main"
 where = ["src"]
 
 [tool.setuptools.package-data]
-library_visitor = ["face/antispoof_models/*", "ui/icon.png"]
+library_visitor = ["face/antispoof_models/*", "ui/icon.png", "ui/assets/*"]
 
 [tool.ruff]
 line-length = 100

@@ -4,8 +4,10 @@ from datetime import datetime
 from pathlib import Path
 
 from PySide6.QtCore import Qt, Signal
+from PySide6.QtGui import QImage, QPixmap
 from PySide6.QtMultimedia import QMediaDevices
 from PySide6.QtWidgets import (
+    QApplication,
     QCheckBox,
     QComboBox,
     QDoubleSpinBox,
@@ -30,6 +32,12 @@ from library_visitor.audio import TTS_LANGUAGES, Announcer
 from library_visitor.backups import backup_dir, list_backups
 from library_visitor.config import Settings
 from library_visitor.db import backup_database
+from library_visitor.licensing import License
+from library_visitor.ui.theme import role, variant
+from library_visitor.ui.widgets import logo_pixmap
+
+LOGO_FILE = "logo.png"
+LOGO_MAX_SIZE = 512  # px, logo disalin & diperkecil ke folder data
 
 
 def _spin(lo: int, hi: int, suffix: str = "") -> QSpinBox:
@@ -45,7 +53,7 @@ def _dspin(lo: float, hi: float, step: float) -> QDoubleSpinBox:
 def _hint(text: str) -> QLabel:
     label = QLabel(text)
     label.setWordWrap(True)
-    label.setStyleSheet("color:#666; font-size:11px;")
+    role(label, "caption")
     return label
 
 
@@ -53,21 +61,64 @@ class SettingsPage(QWidget):
     saved = Signal(set)  # nama-nama field yang berubah
     gallery_sync_requested = Signal(bool)  # True = sinkron ulang penuh
     gallery_clear_requested = Signal()
+    license_change_requested = Signal()
 
     def __init__(
-        self, settings: Settings, announcer: Announcer, external_login_available: bool = False
+        self,
+        settings: Settings,
+        announcer: Announcer,
+        external_login_available: bool = False,
+        license_: License | None = None,
     ) -> None:
         super().__init__()
         self._settings = settings
         self._announcer = announcer
+        self._pending_logo: str | None = None  # file logo baru, disalin saat disimpan
+        self._remove_logo = False
+
+        # --- Identitas & lisensi ---
+        self.library_name = QLineEdit()
+        self.library_address = QLineEdit(placeholderText="Alamat lengkap perpustakaan")
+        self.library_contact = QLineEdit(placeholderText="Telepon / email / situs web")
+        self.logo_preview = QLabel()
+        self.logo_preview.setFixedSize(56, 56)
+        self.logo_preview.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.logo_preview.setStyleSheet(
+            "border:1px solid #E2E8F0; border-radius:10px; background:#F8FAFC;"
+        )
+        logo_row = QHBoxLayout()
+        logo_row.addWidget(self.logo_preview)
+        logo_row.addWidget(QPushButton("Pilih Logo...", clicked=self._choose_logo))
+        logo_row.addWidget(variant(QPushButton("Pakai Bawaan", clicked=self._clear_logo), "ghost"))
+        logo_row.addStretch(1)
+        self.license_info = QLabel()
+        self.license_info.setWordWrap(True)
+        self.license_info.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        license_row = QHBoxLayout()
+        license_row.addWidget(self.license_info, 1)
+        license_row.addWidget(
+            QPushButton("Ganti Lisensi...", clicked=lambda: self.license_change_requested.emit())
+        )
+        identity = QGroupBox("Identitas Perpustakaan")
+        f = QFormLayout(identity)
+        f.addRow("Nama perpustakaan", self.library_name)
+        f.addRow("Alamat", self.library_address)
+        f.addRow("Kontak", self.library_contact)
+        f.addRow("Logo", logo_row)
+        f.addRow("Lisensi", license_row)
+        f.addRow(
+            _hint(
+                "Nama institusi diambil dari lisensi dan tampil di header, layar kios, dan "
+                "laporan Excel. Logo disalin ke folder data aplikasi."
+            )
+        )
+        self.set_license(license_)
 
         # --- Umum ---
-        self.library_name = QLineEdit()
         self.kiosk_on_start = QCheckBox("Buka Mode Kios saat aplikasi dimulai")
         self.kiosk_show_names = QCheckBox("Tampilkan nama pengunjung di layar kios")
         general = QGroupBox("Umum")
         f = QFormLayout(general)
-        f.addRow("Nama perpustakaan", self.library_name)
         f.addRow(self.kiosk_on_start)
         f.addRow(self.kiosk_show_names)
         f.addRow(
@@ -129,7 +180,10 @@ class SettingsPage(QWidget):
         self.anonymous_same = _dspin(0.20, 0.90, 0.01)
         self.preview = QLabel()
         self.preview.setWordWrap(True)
-        self.preview.setStyleSheet("background:#eef6ee; padding:6px; border-radius:4px;")
+        self.preview.setStyleSheet(
+            "background:#F0FDF4; color:#166534; border:1px solid #BBF7D0;"
+            " padding:8px 10px; border-radius:8px;"
+        )
         for edit in (self.greeting_template, self.library_name):
             edit.textChanged.connect(self._update_preview)
         greet = QGroupBox("Kunjungan && Sapaan")
@@ -273,7 +327,9 @@ class SettingsPage(QWidget):
                 "Sinkron Ulang Penuh", clicked=lambda: self.gallery_sync_requested.emit(True)
             )
         )
-        sync_row.addWidget(QPushButton("Hapus Galeri", clicked=self._confirm_clear_gallery))
+        sync_row.addWidget(
+            variant(QPushButton("Hapus Galeri", clicked=self._confirm_clear_gallery), "danger")
+        )
         f.addRow(sync_row)
         f.addRow(
             _hint(
@@ -285,12 +341,13 @@ class SettingsPage(QWidget):
 
         # --- Tata letak ---
         grid = QGridLayout()
-        grid.addWidget(general, 0, 0)
-        grid.addWidget(camera, 1, 0)
-        grid.addWidget(security, 2, 0)
-        grid.addWidget(greet, 0, 1, 2, 1)
-        grid.addWidget(sound, 2, 1)
-        grid.addWidget(gallery, 3, 1)
+        grid.addWidget(identity, 0, 0)
+        grid.addWidget(general, 1, 0)
+        grid.addWidget(camera, 2, 0)
+        grid.addWidget(security, 3, 0)
+        grid.addWidget(greet, 0, 1, 3, 1)
+        grid.addWidget(sound, 3, 1)
+        grid.addWidget(gallery, 4, 1)
         grid.setColumnStretch(0, 1)
         grid.setColumnStretch(1, 1)
         content = QWidget()
@@ -302,12 +359,13 @@ class SettingsPage(QWidget):
 
         buttons = QHBoxLayout()
         buttons.addStretch(1)
-        buttons.addWidget(QPushButton("Batalkan Perubahan", clicked=self.refresh))
-        save = QPushButton("Simpan Pengaturan", clicked=self._save)
+        buttons.addWidget(variant(QPushButton("Batalkan Perubahan", clicked=self.refresh), "ghost"))
+        save = variant(QPushButton("Simpan Pengaturan", clicked=self._save), "primary")
         save.setDefault(True)
         buttons.addWidget(save)
 
         layout = QVBoxLayout(self)
+        layout.setContentsMargins(16, 14, 16, 14)
         layout.addWidget(scroll, 1)
         layout.addLayout(buttons)
         self.refresh()
@@ -317,6 +375,11 @@ class SettingsPage(QWidget):
     def refresh(self) -> None:
         s = self._settings
         self.library_name.setText(s.library_name)
+        self.library_address.setText(s.library_address)
+        self.library_contact.setText(s.library_contact)
+        self._pending_logo = None
+        self._remove_logo = False
+        self.logo_preview.setPixmap(logo_pixmap(s, 48))
         self.kiosk_on_start.setChecked(s.kiosk_on_start)
         self.kiosk_show_names.setChecked(s.kiosk_show_names)
         self.multi_face.setChecked(s.multi_face)
@@ -367,6 +430,8 @@ class SettingsPage(QWidget):
     def _values(self) -> dict:
         return {
             "library_name": self.library_name.text().strip() or "Perpustakaan",
+            "library_address": self.library_address.text().strip(),
+            "library_contact": self.library_contact.text().strip(),
             "kiosk_on_start": self.kiosk_on_start.isChecked(),
             "kiosk_show_names": self.kiosk_show_names.isChecked(),
             "multi_face": self.multi_face.isChecked(),
@@ -416,7 +481,14 @@ class SettingsPage(QWidget):
             return
         s = self._settings
         before = s.to_dict()
+        try:
+            logo = self._store_logo()
+        except OSError as exc:
+            QMessageBox.warning(self, "Logo", str(exc))
+            return
         s.update(self._values())
+        if logo is not None:
+            s.library_logo = logo
         if self.remove_pin.isChecked():
             s.set_pin("")
         elif pin:
@@ -431,6 +503,56 @@ class SettingsPage(QWidget):
         self.refresh()
         self.saved.emit(changed)
         QMessageBox.information(self, "Tersimpan", "Pengaturan disimpan dan langsung diterapkan.")
+
+    # ---------- identitas & lisensi ----------
+
+    def set_license(self, lic: License | None) -> None:
+        self.license_info.setText(lic.describe() if lic else "Belum ada lisensi aktif")
+
+    def _choose_logo(self) -> None:
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Pilih logo perpustakaan", "", "Gambar (*.png *.jpg *.jpeg *.bmp *.svg)"
+        )
+        if not path:
+            return
+        image = QImage(path)
+        if image.isNull():
+            QMessageBox.warning(self, "Logo", "File tersebut bukan gambar yang bisa dibaca.")
+            return
+        self._pending_logo = path
+        self._remove_logo = False
+        self.logo_preview.setPixmap(
+            QPixmap.fromImage(image).scaled(
+                48,
+                48,
+                Qt.AspectRatioMode.KeepAspectRatio,
+                Qt.TransformationMode.SmoothTransformation,
+            )
+        )
+
+    def _clear_logo(self) -> None:
+        self._pending_logo = None
+        self._remove_logo = True
+        self.logo_preview.setPixmap(QApplication.windowIcon().pixmap(48, 48))
+
+    def _store_logo(self) -> str | None:
+        """Nama file logo baru untuk settings ("" = bawaan), atau None bila tidak berubah."""
+        if self._remove_logo:
+            return ""
+        if self._pending_logo is None:
+            return None
+        image = QImage(self._pending_logo)
+        if image.width() > LOGO_MAX_SIZE or image.height() > LOGO_MAX_SIZE:
+            image = image.scaled(
+                LOGO_MAX_SIZE,
+                LOGO_MAX_SIZE,
+                Qt.AspectRatioMode.KeepAspectRatio,
+                Qt.TransformationMode.SmoothTransformation,
+            )
+        self._settings.data_dir.mkdir(parents=True, exist_ok=True)
+        if image.isNull() or not image.save(str(self._settings.data_dir / LOGO_FILE), "PNG"):
+            raise OSError("Logo tidak bisa disimpan ke folder data aplikasi.")
+        return LOGO_FILE
 
     # ---------- aksi ----------
 

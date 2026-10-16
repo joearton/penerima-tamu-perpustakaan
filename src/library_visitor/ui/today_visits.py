@@ -92,17 +92,16 @@ class TodayVisitsCard(QFrame):
         super().__init__()
         self.setObjectName("todayCard")
         self.setStyleSheet(
-            "#todayCard { background: palette(base); border: 1px solid palette(mid);"
-            " border-radius: 8px; }"
+            "#todayCard { background: #FFFFFF; border: 1px solid #E2E8F0; border-radius: 12px; }"
         )
 
         title = QLabel("Kunjungan Hari Ini")
-        title.setStyleSheet("font-size:16px; font-weight:bold;")
+        title.setStyleSheet("font-size:16px; font-weight:700;")
         self.count = QLabel("0")
         self.count.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.count.setMinimumWidth(36)
         self.count.setStyleSheet(
-            "background:#1e8449; color:white; font-weight:bold; font-size:14px;"
+            "background:#2563EB; color:white; font-weight:700; font-size:13px;"
             " border-radius:11px; padding:2px 10px;"
         )
         self.summary = QLabel()
@@ -132,9 +131,9 @@ class TodayVisitsCard(QFrame):
             head.setSectionResizeMode(col, QHeaderView.ResizeMode.ResizeToContents)
         head.setSectionResizeMode(COL_NAME, QHeaderView.ResizeMode.Stretch)
         self.table.setStyleSheet(
-            "QTableWidget { background: transparent; }"
-            "QHeaderView::section { background: transparent; border: none;"
-            " border-bottom: 1px solid palette(mid); padding: 6px 8px; font-weight: bold; }"
+            "QTableWidget { background: transparent; border: none; }"
+            "QHeaderView::section { background: transparent; border: none; color: #64748B;"
+            " border-bottom: 1px solid #E2E8F0; padding: 6px 8px; font-weight: 600; }"
             "QTableWidget::item { padding: 0 8px; }"
         )
 
@@ -142,7 +141,7 @@ class TodayVisitsCard(QFrame):
         self._show_names = True
         self.big_count = QLabel("0")
         self.big_count.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.big_count.setStyleSheet("font-size:96px; font-weight:bold; color:#1e8449;")
+        self.big_count.setStyleSheet("font-size:96px; font-weight:800; color:#2563EB;")
         self.big_caption = QLabel("pengunjung hari ini")
         self.big_caption.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.big_caption.setStyleSheet("font-size:20px; color: palette(placeholder-text);")

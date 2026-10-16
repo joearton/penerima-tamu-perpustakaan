@@ -4,6 +4,8 @@ Kontrak yang diharapkan (header X-API-Key dan X-API-Secret pada semua permintaan
 
     Lookup (wajib)   GET <DIRECTORY_LOOKUP_URL dengan {nomor} terisi>
         200: {"status": true, "data": {"member_no", "name", "category", "unit", "status"}}
+        Opsional: "photo" (JPEG/PNG base64 atau URL), "photo_url", atau "picture" untuk
+        menampilkan foto profil saat registrasi. Foto hanya ditampilkan, tidak disimpan.
     Pencarian (opsional, untuk auto-complete)   GET <DIRECTORY_SEARCH_URL>?q=<teks>&limit=<n>
         200: {"status": true, "data": [<objek anggota seperti di atas>, ...]}
     Foto (opsional, untuk tebakan wajah saat registrasi)
@@ -38,20 +40,47 @@ USER_AGENT = "library-visitor/0.1"
 KNOWN_CATEGORIES = ("Mahasiswa", "Dosen", "Staf")
 MIN_SEARCH_CHARS = 3
 FACES_PER_PAGE = 100
+MAX_PHOTO_BYTES = 2 * 1024 * 1024
 
 
 def _clean(value: object) -> str:
     return str(value).strip() if value is not None else ""
 
 
+def _decode_photo(value: str) -> bytes:
+    """JPEG/PNG dari base64 (boleh berawalan data URI); b"" bila tidak valid."""
+    if value.startswith("data:"):
+        value = value.partition(",")[2]
+    try:
+        return base64.b64decode(value, validate=True)
+    except (binascii.Error, ValueError):
+        return b""
+
+
+def _photo_fields(data: dict) -> tuple[bytes, str]:
+    """Foto profil opsional: "photo" (base64 atau URL), "photo_url", atau "picture" (OIDC)."""
+    for key in ("photo", "photo_url", "picture"):
+        value = _clean(data.get(key))
+        if not value:
+            continue
+        if value.startswith(("https://", "http://")):
+            return b"", value
+        if len(value) <= MAX_PHOTO_BYTES * 4 // 3 + 4:
+            return _decode_photo(value), ""
+    return b"", ""
+
+
 def person_from_api(data: dict) -> DirectoryPerson:
     category = _clean(data.get("category"))
+    photo, photo_url = _photo_fields(data)
     return DirectoryPerson(
         member_no=_clean(data.get("member_no")),
         name=_clean(data.get("name")),
         category=category if category in KNOWN_CATEGORIES else "Umum",
         unit=_clean(data.get("unit")),
         status=_clean(data.get("status")),
+        photo=photo,
+        photo_url=photo_url,
     )
 
 
@@ -170,6 +199,25 @@ class ApiDirectory:
             return []
         return [person_from_api(item) for item in items[:limit] if isinstance(item, dict)]
 
+    def fetch_photo(self, person: DirectoryPerson) -> bytes:
+        """Foto profil untuk ditampilkan (b"" bila tidak ada). Tidak disimpan ke disk.
+
+        Kredensial API hanya ikut dikirim bila foto berada di host yang sama dengan lookup.
+        """
+        if person.photo or not person.photo_url:
+            return person.photo
+        url = person.photo_url
+        same_host = urllib.parse.urlsplit(url)[:2] == urllib.parse.urlsplit(self.lookup_url)[:2]
+        headers = self._headers if same_host else {"User-Agent": USER_AGENT}
+        req = urllib.request.Request(url, headers={**headers, "Accept": "image/*"})
+        try:
+            with urllib.request.urlopen(req, timeout=self._timeout) as resp:
+                data = resp.read(MAX_PHOTO_BYTES + 1)
+        except (urllib.error.URLError, TimeoutError, ValueError) as exc:
+            log.warning("Foto profil tidak bisa diambil: %s", exc)
+            return b""
+        return data if len(data) <= MAX_PHOTO_BYTES else b""
+
     def iter_photos(self, updated_since: str | None = None) -> Iterator[DirectoryPhoto]:
         """Semua foto (halaman demi halaman). Item tanpa foto yang valid dilewati."""
         if not self.supports_faces:
@@ -191,9 +239,9 @@ class ApiDirectory:
                     jpeg = base64.b64decode(item["photo"], validate=True)
                 except (binascii.Error, ValueError):
                     continue
-                yield DirectoryPhoto(
-                    person_from_api(item), jpeg, _clean(item.get("photo_updated_at"))
-                )
+                # Foto sudah dibawa terpisah sebagai `jpeg`; jangan diduplikasi di person
+                person = person_from_api({k: v for k, v in item.items() if k != "photo"})
+                yield DirectoryPhoto(person, jpeg, _clean(item.get("photo_updated_at")))
             meta = body.get("meta") or {}
             if not items or page >= int(meta.get("last_page") or page):
                 return

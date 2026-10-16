@@ -27,18 +27,20 @@ from library_visitor.camera import FaceResult
 from library_visitor.config import Settings
 from library_visitor.extensions import DirectoryPerson, ExtensionError, MemberDirectory
 from library_visitor.services import ServiceError, VisitorService, VisitResult
+from library_visitor.ui.member_completer import MemberCompleter
+from library_visitor.ui.theme import role, variant
 from library_visitor.ui.today_visits import TodayVisitsCard
-from library_visitor.ui.widgets import VideoView
+from library_visitor.ui.widgets import VideoView, logo_pixmap, resizable_split
 
 log = logging.getLogger(__name__)
 
 # Jeda sebelum anggota yang sama diproses lagi dari kamera (mencegah spam ke database)
 RECHECK_SECONDS = 10
 
-IDLE_STYLE = "background:#34495e;"
-OK_STYLE = "background:#1e8449;"
-INFO_STYLE = "background:#2471a3;"
-ERROR_STYLE = "background:#c0392b;"
+IDLE_STYLE = "background:#334155;"
+OK_STYLE = "background:#16A34A;"
+INFO_STYLE = "background:#2563EB;"
+ERROR_STYLE = "background:#DC2626;"
 
 
 class GuestDialog(QDialog):
@@ -57,7 +59,9 @@ class GuestDialog(QDialog):
         buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
         )
-        buttons.button(QDialogButtonBox.StandardButton.Ok).setText("Catat Kunjungan")
+        ok = buttons.button(QDialogButtonBox.StandardButton.Ok)
+        ok.setText("Catat Kunjungan")
+        variant(ok, "primary")
         buttons.button(QDialogButtonBox.StandardButton.Cancel).setText("Batal")
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
@@ -97,18 +101,29 @@ class VisitPage(QWidget):
         self._last_handled: dict[int, float] = {}
 
         self.title = QLabel()
-        self.title.setStyleSheet(f"font-size:{34 if kiosk else 24}px; font-weight:bold;")
+        self.title.setStyleSheet(f"font-size:{34 if kiosk else 24}px; font-weight:700;")
         self.clock = QLabel()
         self.clock.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-        self.clock.setStyleSheet(f"font-size:{26 if kiosk else 18}px; color:#555;")
+        self.clock.setStyleSheet(f"font-size:{26 if kiosk else 18}px; color:#64748B;")
         clock_timer = QTimer(self, interval=1000)
         clock_timer.timeout.connect(self._tick)
         clock_timer.start()
+        # Identitas: logo, nama perpustakaan, lalu institusi (dari lisensi) · alamat · kontak
+        self.logo = QLabel()
+        self.subtitle = QLabel()
+        self.subtitle.setStyleSheet(f"font-size:{18 if kiosk else 13}px; color:#64748B;")
+        titles = QVBoxLayout()
+        titles.setSpacing(0)
+        titles.addWidget(self.title)
+        titles.addWidget(self.subtitle)
         header = QHBoxLayout()
-        header.addWidget(self.title, 1)
+        header.setSpacing(12)
+        header.addWidget(self.logo)
+        header.addLayout(titles, 1)
         header.addWidget(self.clock)
         if not kiosk:
-            header.addWidget(QPushButton("Mode Kios", clicked=lambda: self.kiosk_requested.emit()))
+            kiosk_btn = QPushButton("Mode Kios  (F10)", clicked=lambda: self.kiosk_requested.emit())
+            header.addWidget(kiosk_btn)
 
         self.video = VideoView()
         self.banner = QLabel()
@@ -123,7 +138,7 @@ class VisitPage(QWidget):
 
         self.member_no = QLineEdit()
         self.member_no.returnPressed.connect(self._record_manual)
-        manual_btn = QPushButton("Catat", clicked=self._record_manual)
+        manual_btn = variant(QPushButton("Catat", clicked=self._record_manual), "primary")
         self.today = TodayVisitsCard()
         right = QVBoxLayout()
 
@@ -139,15 +154,17 @@ class VisitPage(QWidget):
             guest_btn = QPushButton("Saya tamu (bukan anggota)", clicked=self._guest_dialog)
             guest_btn.setMinimumHeight(48)
             guest_btn.setStyleSheet("font-size:17px;")
-            hint = QLabel("Esc: keluar dari mode kios (admin)")
-            hint.setStyleSheet("color: palette(placeholder-text);")
+            hint = role(QLabel("Esc: keluar dari mode kios (admin)"), "caption")
             hint.setAlignment(Qt.AlignmentFlag.AlignRight)
             right.addWidget(self.today, 1)
             right.addLayout(scan_row)
             right.addWidget(guest_btn)
             right.addWidget(hint)
         else:
-            self.member_no.setPlaceholderText("No. anggota / NIM / scan barcode")
+            self.member_no.setPlaceholderText("No. anggota / NIM / nama, atau scan barcode")
+            # Bukan di mode kios: daftar nama anggota lain tidak boleh tampil ke publik.
+            # Memilih saran dengan Enter langsung mencatat (returnPressed menyusul).
+            MemberCompleter(self.member_no, service, directory, "member_no")
             manual_box = QGroupBox("Input manual")
             manual_row = QHBoxLayout(manual_box)
             manual_row.addWidget(self.member_no, 1)
@@ -159,26 +176,34 @@ class VisitPage(QWidget):
             guest_form = QFormLayout(guest_box)
             guest_form.addRow("Nama", self.guest_name)
             guest_form.addRow("Keperluan", self.guest_purpose)
-            guest_form.addRow(QPushButton("Catat Tamu", clicked=self._record_guest))
+            guest_form.addRow(
+                variant(QPushButton("Catat Tamu", clicked=self._record_guest), "primary")
+            )
             right.addWidget(manual_box)
             right.addWidget(guest_box)
             right.addWidget(self.today, 1)
 
-        body = QHBoxLayout()
-        body.addLayout(left, 3)
-        body.addLayout(right, 2)
+        body = resizable_split(left, right, settings, "kiosk" if kiosk else "visit")
         layout = QVBoxLayout(self)
+        layout.setSpacing(12)
         if kiosk:
             layout.setContentsMargins(24, 16, 24, 16)
+        else:
+            layout.setContentsMargins(16, 14, 16, 14)
         layout.addLayout(header)
-        layout.addLayout(body, 1)
+        layout.addWidget(body, 1)
 
         self.apply_settings()
         self._tick()
         self.refresh()
 
     def apply_settings(self) -> None:
-        self.title.setText(self._settings.library_name)
+        s = self._settings
+        self.title.setText(s.library_name)
+        details = [s.licensee, s.library_address, s.library_contact]
+        self.subtitle.setText("  ·  ".join(x for x in details if x))
+        self.subtitle.setVisible(any(details))
+        self.logo.setPixmap(logo_pixmap(s, 72 if self._kiosk else 48))
         if self._kiosk:
             self.today.set_show_names(self._settings.kiosk_show_names)
             self.refresh()
@@ -381,7 +406,7 @@ class VisitPage(QWidget):
         self.banner.setText(text)
         self.banner.setStyleSheet(
             f"font-size:{32 if self._kiosk else 24}px; font-weight:bold; color:white;"
-            f" padding:{22 if self._kiosk else 14}px; border-radius:8px;" + style
+            f" padding:{22 if self._kiosk else 14}px; border-radius:12px;" + style
         )
         if style != IDLE_STYLE:
             self._banner_timer.start()

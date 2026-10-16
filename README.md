@@ -32,6 +32,16 @@ python3 -m venv .venv
 ```
 Di Linux, user perlu akses ke `/dev/video*`, biasanya lewat grup `video`: `sudo usermod -aG video $USER`, lalu login ulang.
 
+## Lisensi
+Aplikasi wajib diaktivasi dengan key lisensi. Saat dibuka tanpa lisensi yang valid (belum ada atau sudah kedaluwarsa), hanya dialog aktivasi yang tampil.
+- Key memuat nama institusi pemegang lisensi dan masa berlakunya. Key ditandatangani Ed25519 dan diverifikasi offline memakai kunci publik di `src/library_visitor/licensing.py`.
+- Key tersimpan di `data/license.key`. Untuk menggantinya, buka **Pengaturan → Identitas Perpustakaan → Ganti Lisensi...**
+- Lisensi yang kedaluwarsa saat aplikasi sedang berjalan terdeteksi dalam pengecekan per jam, lalu dialog aktivasi muncul.
+- Key dibuat dengan aplikasi **license-generator** di folder terpisah (tidak ada di repo ini), karena folder itu menyimpan kunci privat.
+
+## Identitas perpustakaan
+Diatur di **Pengaturan → Identitas Perpustakaan**: nama perpustakaan, alamat, kontak, dan logo. Logo disalin ke `data/logo.png`. Nama institusi diambil dari lisensi. Identitas ini tampil di header aplikasi, layar Mode Kios, dan sheet **Info** pada ekspor Excel.
+
 ## Konfigurasi
 Pengaturan aplikasi diubah dari tab **Pengaturan** dan disimpan di `data/settings.json`.
 Lokasi folder data/model bisa dipindah dengan environment variable `LV_HOME`.
@@ -64,6 +74,8 @@ GET /api/members/2021010123/
      "category": "Mahasiswa", "unit": "Informatika", "status": "Aktif"}}
 404 anggota tidak ditemukan
 ```
+**Opsional, foto profil:** bila objek anggota memuat `photo` (JPEG/PNG base64 atau URL), `photo_url`, atau `picture`, fotonya ditampilkan di form Registrasi. Foto hanya ditampilkan di memori dan tidak disimpan. Kredensial API hanya ikut dikirim bila URL foto berada di host yang sama dengan `DIRECTORY_LOOKUP_URL`.
+
 `category` dikenali sebagai `Mahasiswa`, `Dosen`, atau `Staf`; nilai lain menjadi `Umum`. Hanya field di atas yang dipakai, dan respons mentah tidak pernah disimpan atau ditulis ke log.
 Sebaiknya API key yang dipakai hanya punya akses ke endpoint lookup ini, dengan data seminimal mungkin.
 

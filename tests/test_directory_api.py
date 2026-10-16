@@ -1,3 +1,4 @@
+import base64
 import json
 import urllib.error
 from io import BytesIO
@@ -158,3 +159,41 @@ def test_iter_photos_pages_and_skips_invalid(monkeypatch):
     assert photos[0].updated_at == "2026-10-01T00:00:00"
     assert "page=1" in seen[0] and "updated_since=2026-09-01T00%3A00%3A00" in seen[0]
     assert "page=2" in seen[1] and len(seen) == 2
+
+
+def test_lookup_reads_optional_profile_photo(directory, monkeypatch):
+    jpeg = base64.b64encode(b"jpeg-foto").decode()
+    routes = {
+        URL.format(nomor="1"): (200, {"member_no": "1", "name": "A", "photo": jpeg}),
+        URL.format(nomor="2"): (
+            200,
+            {"member_no": "2", "name": "B", "photo": f"data:image/jpeg;base64,{jpeg}"},
+        ),
+        URL.format(nomor="3"): (
+            200,
+            {"member_no": "3", "name": "C", "picture": "https://directory.example/f/3.jpg"},
+        ),
+        URL.format(nomor="4"): (200, {"member_no": "4", "name": "D"}),
+    }
+    monkeypatch.setattr(directory_api.urllib.request, "urlopen", fake_urlopen(routes, []))
+    assert directory.lookup("1").photo == b"jpeg-foto"
+    assert directory.lookup("2").photo == b"jpeg-foto"
+    person = directory.lookup("3")
+    assert (person.photo, person.photo_url) == (b"", "https://directory.example/f/3.jpg")
+    assert directory.fetch_photo(directory.lookup("4")) == b""
+
+
+def test_fetch_photo_sends_credentials_only_to_directory_host(directory, monkeypatch):
+    seen = []
+
+    def urlopen(req, timeout):
+        seen.append(req)
+        return FakeResponse(b"gambar")
+
+    monkeypatch.setattr(directory_api.urllib.request, "urlopen", urlopen)
+    same = DirectoryPerson("1", "A", "Umum", "", "", photo_url="https://directory.example/f/1")
+    other = DirectoryPerson("2", "B", "Umum", "", "", photo_url="https://cdn.example/f/2")
+    assert directory.fetch_photo(same) == b"gambar"
+    assert directory.fetch_photo(other) == b"gambar"
+    assert seen[0].get_header("X-api-secret") == "rahasia"
+    assert seen[1].get_header("X-api-secret") is None

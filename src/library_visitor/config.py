@@ -55,9 +55,17 @@ class Settings:
 
     # Umum
     library_name: str = "Perpustakaan"
+    # Identitas (nama institusi diambil dari lisensi)
+    library_address: str = ""
+    library_contact: str = ""  # telepon / email / situs
+    library_logo: str = ""  # nama file di folder data, disalin dari file pilihan pengguna
+    # Nama institusi dari lisensi aktif; diisi saat runtime, tidak disimpan ke settings.json
+    licensee: str = field(default="", metadata={"persist": False})
     kiosk_on_start: bool = False  # langsung buka jendela Mode Kios saat aplikasi dimulai
     # Layar kios menghadap umum: default hanya tampilkan jumlah, bukan nama pengunjung lain
     kiosk_show_names: bool = False
+    # Lebar panel kamera/form yang digeser pengguna, per halaman (mis. {"visit": [780, 480]})
+    splitter_sizes: dict = field(default_factory=dict)
 
     # Kamera & pengenalan wajah
     camera_index: int = 0
@@ -134,6 +142,13 @@ class Settings:
     @property
     def settings_path(self) -> Path:
         return self.data_dir / "settings.json"
+
+    @property
+    def logo_path(self) -> Path | None:
+        if not self.library_logo:
+            return None
+        path = self.data_dir / self.library_logo
+        return path if path.is_file() else None
 
     @property
     def tts_cache_dir(self) -> Path:

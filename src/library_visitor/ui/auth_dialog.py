@@ -24,6 +24,7 @@ from library_visitor.extensions import (
     is_admin,
     parse_admin_usernames,
 )
+from library_visitor.ui.theme import variant
 
 log = logging.getLogger(__name__)
 
@@ -54,6 +55,8 @@ class AdminAuthDialog(QDialog):
         self._login_failed.connect(self._on_login_failed)
 
         layout = QVBoxLayout(self)
+        layout.setContentsMargins(20, 18, 20, 16)
+        layout.setSpacing(10)
         self.status = QLabel()
         self.status.setWordWrap(True)
 
@@ -63,7 +66,9 @@ class AdminAuthDialog(QDialog):
             form = QFormLayout()
             form.addRow("PIN admin", self.pin)
             layout.addLayout(form)
-            layout.addWidget(QPushButton("Masuk dengan PIN", clicked=self._check_pin))
+            layout.addWidget(
+                variant(QPushButton("Masuk dengan PIN", clicked=self._check_pin), "primary")
+            )
 
         if external_admin_enabled(settings, provider):
             self.login_btn = QPushButton(provider.label, clicked=self._start_login)

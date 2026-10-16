@@ -4,9 +4,18 @@ import logging
 import threading
 from datetime import datetime, timedelta
 
-from PySide6.QtCore import QTimer, Signal
+from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtGui import QAction, QCloseEvent, QImage, QKeySequence
-from PySide6.QtWidgets import QDialog, QMainWindow, QTabWidget, QWidget
+from PySide6.QtWidgets import (
+    QDialog,
+    QHBoxLayout,
+    QLabel,
+    QMainWindow,
+    QPushButton,
+    QTabWidget,
+    QVBoxLayout,
+    QWidget,
+)
 
 from library_visitor.anonymous import AnonymousTracker
 from library_visitor.audio import Announcer
@@ -15,14 +24,18 @@ from library_visitor.camera import CameraWorker
 from library_visitor.config import Settings
 from library_visitor.extensions import ExtensionError, Extensions
 from library_visitor.gallery import FaceGallery, GalleryFilter, SyncStats, sync_gallery
+from library_visitor.licensing import License
 from library_visitor.services import VisitorService
 from library_visitor.ui.auth_dialog import AdminAuthDialog, external_admin_enabled
 from library_visitor.ui.kiosk_window import KioskWindow
+from library_visitor.ui.license_dialog import LicenseDialog
 from library_visitor.ui.members_page import MembersPage
 from library_visitor.ui.register_page import RegisterPage
 from library_visitor.ui.report_page import ReportPage
 from library_visitor.ui.settings_page import SettingsPage
+from library_visitor.ui.theme import role, variant
 from library_visitor.ui.visit_page import VisitPage
+from library_visitor.ui.widgets import logo_pixmap
 
 log = logging.getLogger(__name__)
 
@@ -50,8 +63,10 @@ class MainWindow(QMainWindow):
         settings: Settings,
         extensions: Extensions | None = None,
         gallery: FaceGallery | None = None,
+        license_: License | None = None,
     ) -> None:
         super().__init__()
+        self._license = license_
         self._service = service
         self._settings = settings
         self._extensions = extensions or Extensions()
@@ -81,14 +96,16 @@ class MainWindow(QMainWindow):
         self._gallery_cancel: threading.Event | None = None
         self.register_page = RegisterPage(service, settings, self._extensions.directory, gallery)
         self.members_page = MembersPage(service)
-        self.report_page = ReportPage(service)
+        self.report_page = ReportPage(service, settings)
         self.settings_page = SettingsPage(
             settings,
             self.announcer,
             external_login_available=self._extensions.admin_login is not None,
+            license_=license_,
         )
 
         self.tabs = QTabWidget()
+        self.tabs.setDocumentMode(True)
         self.tabs.addTab(self.visit_page, "Kunjungan")
         self.tabs.addTab(self.register_page, "Registrasi Anggota")
         self.tabs.addTab(self.members_page, "Data Anggota")
@@ -97,24 +114,49 @@ class MainWindow(QMainWindow):
         self.tabs.currentChanged.connect(self._on_tab_changed)
         self.setCentralWidget(self.tabs)
 
-        menu = self.menuBar()
-        app_menu = menu.addMenu("Aplikasi")
-        app_menu.addAction(QAction("Mulai Ulang Kamera", self, triggered=self.start_camera))
+        # Tanpa menubar: tombol aplikasi di ujung kanan baris tab, shortcut tetap aktif
+        brand = QWidget()
+        brand_row = QHBoxLayout(brand)
+        brand_row.setContentsMargins(12, 2, 16, 2)
+        brand_row.setSpacing(10)
+        self.brand_logo = QLabel()
+        self.brand = role(QLabel(), "brand")
+        self.brand_sub = role(QLabel(), "caption")
+        brand_text = QVBoxLayout()
+        brand_text.setSpacing(0)
+        brand_text.addWidget(self.brand)
+        brand_text.addWidget(self.brand_sub)
+        brand_row.addWidget(self.brand_logo)
+        brand_row.addLayout(brand_text)
+        self.tabs.setCornerWidget(brand, Qt.Corner.TopLeftCorner)
+
+        corner = QWidget()
+        corner_row = QHBoxLayout(corner)
+        corner_row.setContentsMargins(0, 4, 12, 4)
+        corner_row.setSpacing(6)
+        for text, tip, slot, kind in (
+            ("Mulai Ulang Kamera", "Sambungkan ulang kamera", self.start_camera, "ghost"),
+            ("Kunci", "Kunci tab admin dan kembali ke Kunjungan", self._lock, "ghost"),
+            ("Keluar", "Tutup aplikasi", self.close, "danger"),
+        ):
+            button = variant(QPushButton(text, clicked=slot), kind)
+            button.setToolTip(tip)
+            button.setFocusPolicy(Qt.FocusPolicy.NoFocus)  # fokus tetap di input scan kartu
+            corner_row.addWidget(button)
+        self.tabs.setCornerWidget(corner, Qt.Corner.TopRightCorner)
+
         fullscreen = QAction("Layar Penuh", self, triggered=self._toggle_fullscreen)
         fullscreen.setShortcut(QKeySequence("F11"))
-        app_menu.addAction(fullscreen)
-        kiosk = QAction("Mode Kios (layar penuh pencatatan)", self, triggered=self.open_kiosk)
+        kiosk = QAction("Mode Kios", self, triggered=self.open_kiosk)
         kiosk.setShortcut(QKeySequence("F10"))
-        app_menu.addAction(kiosk)
-        app_menu.addAction(QAction("Kunci Admin", self, triggered=self._lock))
-        app_menu.addSeparator()
-        app_menu.addAction(QAction("Keluar", self, triggered=self.close))
+        self.addActions([fullscreen, kiosk])
 
         self.register_page.members_changed.connect(self._on_members_changed)
         self.members_page.members_changed.connect(self._on_members_changed)
         self.visit_page.members_changed.connect(self._update_status)
         self.visit_page.kiosk_requested.connect(self.open_kiosk)
         self.settings_page.saved.connect(self._on_settings_saved)
+        self.settings_page.license_change_requested.connect(self._change_license)
         self._apply_settings()
         self._update_status()
 
@@ -331,6 +373,9 @@ class MainWindow(QMainWindow):
     def _apply_settings(self) -> None:
         s = self._settings
         self.setWindowTitle(f"Buku Tamu {s.library_name}")
+        self.brand.setText(s.library_name)
+        self.brand_sub.setText(s.licensee or "Buku Tamu Perpustakaan")
+        self.brand_logo.setPixmap(logo_pixmap(s, 32))
         self._service.matcher.threshold = s.match_threshold
         self._service.cooldown = timedelta(minutes=s.visit_cooldown_minutes)
         self.anonymous.configure(
@@ -343,8 +388,40 @@ class MainWindow(QMainWindow):
 
     # ---------- lain-lain ----------
 
+    # ---------- lisensi ----------
+
+    def _change_license(self) -> None:
+        dialog = LicenseDialog(self._settings.data_dir, current=self._license, parent=self)
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            self._set_license(dialog.license)
+            self.statusBar().showMessage(f"Lisensi aktif: {dialog.license.describe()}", 10000)
+
+    def _set_license(self, lic: License) -> None:
+        self._license = lic
+        self._settings.licensee = lic.licensee
+        self.settings_page.set_license(lic)
+        self._apply_settings()
+
+    def _check_license(self) -> None:
+        """Aplikasi kios bisa menyala berhari-hari: lisensi kedaluwarsa wajib diperbarui."""
+        if self._license is None or not self._license.is_expired():
+            return
+        log.warning("Lisensi kedaluwarsa: %s", self._license.describe())
+        dialog = LicenseDialog(
+            self._settings.data_dir,
+            current=self._license,
+            startup=True,
+            reason="Lisensi sudah kedaluwarsa. Masukkan key baru untuk melanjutkan.",
+            parent=self,
+        )
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            self._set_license(dialog.license)
+        else:
+            self.close()
+
     def _auto_backup(self) -> None:
-        self._auto_gallery_sync()  # ikut pengecekan per jam
+        self._check_license()  # ikut pengecekan per jam
+        self._auto_gallery_sync()
         try:
             created = run_daily_backup(self._settings)
         except Exception as exc:  # disk penuh, folder tidak bisa ditulis, dll.

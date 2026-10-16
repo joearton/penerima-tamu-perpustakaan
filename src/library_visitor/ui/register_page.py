@@ -1,12 +1,13 @@
 from __future__ import annotations
 
+import logging
 import time
 from collections import deque
 from concurrent.futures import ThreadPoolExecutor
 
 import numpy as np
-from PySide6.QtCore import Signal
-from PySide6.QtGui import QImage
+from PySide6.QtCore import Qt, Signal
+from PySide6.QtGui import QImage, QPixmap
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -29,12 +30,16 @@ from library_visitor.face import normalize
 from library_visitor.gallery import Candidate, FaceGallery
 from library_visitor.services import CATEGORIES, ServiceError, VisitorService
 from library_visitor.ui.member_completer import MemberCompleter
-from library_visitor.ui.widgets import VideoView
+from library_visitor.ui.theme import role, variant
+from library_visitor.ui.widgets import VideoView, resizable_split
+
+log = logging.getLogger(__name__)
 
 SAMPLE_INTERVAL = 0.4  # detik antar sampel, agar variasi pose terekam
 SUGGEST_INTERVAL = 1.0  # detik antar pembaruan tebakan foto
 SUGGEST_WINDOW = 8  # embedding terakhir yang dirata-rata agar tebakan stabil
 SUGGEST_CLEAR_AFTER = 3.0  # detik tanpa wajah sebelum tebakan dihapus
+PHOTO_SIZE = 120  # px, foto profil dari direktori
 
 CONSENT_TEXT = (
     "Anggota menyetujui pengolahan data biometrik wajah untuk keperluan "
@@ -46,6 +51,7 @@ class RegisterPage(QWidget):
     members_changed = Signal()
     _lookup_done = Signal(str, object)  # no. yang dicari, DirectoryPerson | None
     _lookup_failed = Signal(str)
+    _photo_ready = Signal(str, bytes)  # no. anggota, foto profil (b"" bila tidak ada)
 
     def __init__(
         self,
@@ -66,6 +72,7 @@ class RegisterPage(QWidget):
         self._executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="directory")
         self._lookup_done.connect(self._on_lookup_result)
         self._lookup_failed.connect(self._on_lookup_failed)
+        self._photo_ready.connect(self._on_photo_ready)
         self._samples: list[np.ndarray] = []
         self._collecting = False
         self._last_sample = 0.0
@@ -74,15 +81,17 @@ class RegisterPage(QWidget):
         self.progress = QProgressBar(maximum=settings.enroll_samples, format="%v / %m sampel")
         self.hint = QLabel('Isi data anggota, lalu klik "Ambil Wajah".')
         self.hint.setWordWrap(True)
+        # Instruksi pengambilan wajah: besar dan di bawah tombol agar mudah dibaca petugas
+        role(self.hint, "callout")
 
         left = QVBoxLayout()
         left.addWidget(self.video, 1)
         left.addWidget(self.progress)
-        left.addWidget(self.hint)
 
         self.member_no = QLineEdit(placeholderText="Contoh: 2021010123")
         self.member_no.editingFinished.connect(self._load_existing)
         self.member_no.textEdited.connect(self._clear_directory_status)
+        self.member_no.textEdited.connect(self._clear_photo)
         self.lookup_btn = QPushButton(
             directory.label if directory else "Cari di direktori", clicked=self._lookup
         )
@@ -92,19 +101,29 @@ class RegisterPage(QWidget):
         self.name = QLineEdit()
         self.unit = QLineEdit(placeholderText="Program studi / unit kerja")
         self.directory_label = QLabel("-")
+        # Foto profil dari direktori: hanya ditampilkan, tidak disimpan
+        self.photo = QLabel(alignment=Qt.AlignmentFlag.AlignCenter)
+        self.photo.setFixedSize(PHOTO_SIZE, PHOTO_SIZE)
+        self.photo.setStyleSheet(
+            "border:1px solid #E2E8F0; border-radius:12px; background:#F8FAFC; padding:2px;"
+        )
+        self.photo.hide()
         self.category = QComboBox()
         self.category.addItems(CATEGORIES)
         self.consent = QCheckBox("Persetujuan data biometrik")
         self.consent.setToolTip(CONSENT_TEXT)
         consent_label = QLabel(CONSENT_TEXT)
         consent_label.setWordWrap(True)
-        consent_label.setStyleSheet("color:#666; font-size:11px;")
+        role(consent_label, "caption")
 
-        self.capture_btn = QPushButton("Ambil Wajah", clicked=self._start_capture)
-        self.save_btn = QPushButton("Simpan", clicked=self._save)
-        reset_btn = QPushButton("Reset", clicked=self.reset)
+        self.capture_btn = variant(
+            QPushButton("Ambil Wajah", clicked=self._start_capture), "primary"
+        )
+        self.save_btn = variant(QPushButton("Simpan", clicked=self._save), "success")
+        reset_btn = variant(QPushButton("Reset", clicked=self.reset), "ghost")
 
         form = QFormLayout()
+        form.addRow(self.photo)
         no_row = QHBoxLayout()
         no_row.addWidget(self.member_no, 1)
         no_row.addWidget(self.lookup_btn)
@@ -127,23 +146,30 @@ class RegisterPage(QWidget):
         self.suggest_box = QGroupBox()
         self.suggest_layout = QVBoxLayout(self.suggest_box)
         suggest_title = QLabel("Tebakan dari foto profil")
-        suggest_title.setStyleSheet("font-weight:bold;")
+        suggest_title.setStyleSheet("font-weight:700; font-size:13px;")
         self.suggest_layout.addWidget(suggest_title)
         self.suggest_hint = QLabel("Hadapkan wajah ke kamera untuk melihat tebakan.")
         self.suggest_hint.setWordWrap(True)
-        self.suggest_hint.setStyleSheet("color: palette(placeholder-text);")
+        role(self.suggest_hint, "muted")
         self.suggest_layout.addWidget(self.suggest_hint)
         self._suggest_buttons: list[QPushButton] = []
 
+        data_box = QGroupBox("Data Anggota")
+        data_layout = QVBoxLayout(data_box)
+        data_layout.setSpacing(12)
+        data_layout.addLayout(form)
+        data_layout.addLayout(buttons)
+
         right = QVBoxLayout()
-        right.addLayout(form)
-        right.addLayout(buttons)
+        right.setSpacing(12)
+        right.addWidget(data_box)
+        right.addWidget(self.hint)
         right.addWidget(self.suggest_box)
         right.addStretch(1)
 
         layout = QHBoxLayout(self)
-        layout.addLayout(left, 3)
-        layout.addLayout(right, 2)
+        layout.setContentsMargins(16, 14, 16, 14)
+        layout.addWidget(resizable_split(left, right, settings, "register"))
         self.refresh()
 
     def refresh(self) -> None:
@@ -159,6 +185,7 @@ class RegisterPage(QWidget):
     def _fill_person(self, person: DirectoryPerson, registered: bool = False) -> None:
         """Isi form dari hasil auto-complete atau tebakan foto."""
         self.member_no.setText(person.member_no)
+        self._clear_photo()
         if registered or self._service.get_member_by_no(person.member_no) is not None:
             self._load_existing()
             return
@@ -168,6 +195,8 @@ class RegisterPage(QWidget):
         self._directory_status = person.status or None
         self.directory_label.setText(f"{person.category} · {person.status or 'status tidak ada'}")
         self.hint.setText('Data terisi. Pastikan orangnya benar, lalu klik "Ambil Wajah".')
+        if self._directory is not None:
+            self._executor.submit(self._photo_worker, person)
 
     # ---------- tebakan dari foto ----------
 
@@ -207,7 +236,7 @@ class RegisterPage(QWidget):
             registered = self._service.get_member_by_no(p.member_no) is not None
             detail = " · ".join(x for x in (p.unit, "sudah terdaftar" if registered else "") if x)
             button = QPushButton(f"{p.name} — {p.member_no}\n{detail}   (kemiripan {c.score:.0%})")
-            button.setStyleSheet("text-align:left; padding:6px 10px;")
+            button.setStyleSheet("text-align:left; padding:8px 12px;")
             button.clicked.connect(lambda _=False, p=p, r=registered: self._fill_person(p, r))
             self.suggest_layout.addWidget(button)
             self._suggest_buttons.append(button)
@@ -234,14 +263,52 @@ class RegisterPage(QWidget):
         if not self._directory or not number:
             return
         self.lookup_btn.setEnabled(False)
+        self._clear_photo()
         self.directory_label.setText("Mencari di direktori...")
         self._executor.submit(self._lookup_worker, number)
 
     def _lookup_worker(self, number: str) -> None:
         try:
-            self._lookup_done.emit(number, self._directory.lookup(number))
+            person = self._directory.lookup(number)
         except ExtensionError as exc:
             self._lookup_failed.emit(str(exc))
+            return
+        self._lookup_done.emit(number, person)
+        if person is not None:
+            self._photo_worker(person)
+
+    def _photo_worker(self, person: DirectoryPerson) -> None:
+        """Foto profil (thread latar). Hasil pencarian/galeri biasanya tanpa foto: lookup dulu."""
+        fetch = getattr(self._directory, "fetch_photo", None)
+        if fetch is None:
+            return
+        try:
+            if not (person.photo or person.photo_url):
+                person = self._directory.lookup(person.member_no) or person
+            self._photo_ready.emit(person.member_no, fetch(person))
+        except ExtensionError as exc:
+            log.warning("Foto profil tidak bisa diambil: %s", exc)
+
+    def _on_photo_ready(self, number: str, data: bytes) -> None:
+        if number != self.member_no.text().strip():
+            return  # nomor sudah diganti
+        pixmap = QPixmap()
+        if not data or not pixmap.loadFromData(data):
+            self._clear_photo()
+            return
+        self.photo.setPixmap(
+            pixmap.scaled(
+                PHOTO_SIZE,
+                PHOTO_SIZE,
+                Qt.AspectRatioMode.KeepAspectRatio,
+                Qt.TransformationMode.SmoothTransformation,
+            )
+        )
+        self.photo.show()
+
+    def _clear_photo(self) -> None:
+        self.photo.clear()
+        self.photo.hide()
 
     def _on_lookup_result(self, number: str, person: DirectoryPerson | None) -> None:
         self.lookup_btn.setEnabled(True)
@@ -345,6 +412,7 @@ class RegisterPage(QWidget):
             field.clear()
         self._directory_status = None
         self.directory_label.setText("-")
+        self._clear_photo()
         self.category.setCurrentIndex(0)
         self.consent.setChecked(False)
         self.hint.setText('Isi data anggota, lalu klik "Ambil Wajah".')

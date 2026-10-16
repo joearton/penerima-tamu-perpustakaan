@@ -12,6 +12,7 @@ from PySide6.QtWidgets import (
 
 from library_visitor.db import Member
 from library_visitor.services import VisitorService
+from library_visitor.ui.theme import variant
 from library_visitor.ui.widgets import fill_table, make_table
 
 
@@ -40,9 +41,13 @@ class MembersPage(QWidget):
         toolbar = QHBoxLayout()
         toolbar.addWidget(self.search, 1)
         toolbar.addWidget(QPushButton("Hapus Data Wajah", clicked=self._delete_face))
-        toolbar.addWidget(QPushButton("Hapus Anggota", clicked=self._delete_member))
+        toolbar.addWidget(
+            variant(QPushButton("Hapus Anggota", clicked=self._delete_member), "danger")
+        )
 
         layout = QVBoxLayout(self)
+        layout.setContentsMargins(16, 14, 16, 14)
+        layout.setSpacing(12)
         layout.addLayout(toolbar)
         layout.addWidget(self.table)
 

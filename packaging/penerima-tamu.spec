@@ -11,6 +11,7 @@ for name in MODELS:
 datas = [(str(ROOT / "models" / name), "models") for name in MODELS] + [
     (str(ROOT / "src/library_visitor/face/antispoof_models"), "library_visitor/face/antispoof_models"),
     (str(ROOT / "src/library_visitor/ui/icon.png"), "library_visitor/ui"),
+    (str(ROOT / "src/library_visitor/ui/assets"), "library_visitor/ui/assets"),
 ]
 
 a = Analysis(

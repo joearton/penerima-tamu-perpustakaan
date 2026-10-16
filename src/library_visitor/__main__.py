@@ -81,13 +81,27 @@ def main() -> int:
     from library_visitor.db import create_session_factory
     from library_visitor.face import FaceMatcher
     from library_visitor.gallery import FaceGallery
+    from library_visitor.licensing import check_stored_license
     from library_visitor.services import VisitorService
+    from library_visitor.ui.license_dialog import LicenseDialog
     from library_visitor.ui.main_window import MainWindow
+    from library_visitor.ui.theme import apply_theme
 
     app = QApplication(sys.argv)
     app.setApplicationName("Penerima Tamu Perpustakaan")
     app.setDesktopFileName("penerima-tamu-perpustakaan")  # cocokkan ikon di Wayland/GNOME
     app.setWindowIcon(QIcon(str(Path(__file__).with_name("ui") / "icon.png")))
+    apply_theme(app)
+
+    # Aplikasi wajib berlisensi: tanpa key valid, hanya dialog aktivasi yang tampil
+    license_, reason = check_stored_license(settings.data_dir)
+    if license_ is None:
+        dialog = LicenseDialog(settings.data_dir, startup=True, reason=reason)
+        if dialog.exec() != LicenseDialog.DialogCode.Accepted:
+            return 0
+        license_ = dialog.license
+    log.info("Lisensi: %s", license_.describe())
+    settings.licensee = license_.licensee
 
     sessions = create_session_factory(settings.database_path)
     service = VisitorService(
@@ -97,7 +111,7 @@ def main() -> int:
     gallery = FaceGallery(sessions)
     log.info("Galeri foto direktori: %d wajah", gallery.load())
 
-    window = MainWindow(service, settings, extensions, gallery)
+    window = MainWindow(service, settings, extensions, gallery, license_=license_)
     window.show()
     window.start_camera()
     if settings.kiosk_on_start:
