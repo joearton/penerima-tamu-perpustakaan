@@ -92,7 +92,7 @@ class Settings:
     enroll_samples: int = 5
     # Anti-spoofing (MiniFASNet): tolak wajah dari foto/layar
     antispoof_enabled: bool = True
-    antispoof_threshold: float = 0.80  # skor "wajah asli" minimal (0-1)
+    antispoof_threshold: float = 0.65  # skor "wajah asli" minimal (0-1); lebih tinggi = lebih ketat
 
     # Kunjungan: anggota yang sama tidak dicatat ulang dalam rentang ini
     visit_cooldown_minutes: int = 30
