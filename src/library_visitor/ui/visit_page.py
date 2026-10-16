@@ -108,7 +108,7 @@ class VisitPage(QWidget):
         clock_timer = QTimer(self, interval=1000)
         clock_timer.timeout.connect(self._tick)
         clock_timer.start()
-        # Identitas: logo, nama perpustakaan, lalu institusi (dari lisensi) · alamat · kontak
+        # Identitas: logo, nama lokasi, lalu institusi (dari lisensi) · alamat · kontak
         self.logo = QLabel()
         self.subtitle = QLabel()
         self.subtitle.setStyleSheet(f"font-size:{18 if kiosk else 13}px; color:#64748B;")
@@ -128,7 +128,7 @@ class VisitPage(QWidget):
             kiosk_btn = QPushButton("Mode Kios  (F10)", clicked=lambda: self.kiosk_requested.emit())
             header.addWidget(kiosk_btn)
 
-        self.video = VideoView()
+        self.video = VideoView(camera_switch=not kiosk)
         self.banner = QLabel()
         self.banner.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.banner.setWordWrap(True)

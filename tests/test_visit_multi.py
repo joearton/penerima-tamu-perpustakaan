@@ -58,7 +58,7 @@ def test_multiple_faces_recorded_together(setup):
     for _ in range(settings.stable_frames):
         page.on_frame(IMG, frame(service, [0, 1]))
     assert page.today.count.text() == "2"
-    assert announcer.texts[-1].endswith("Siti dan Budi! Selamat datang di Perpustakaan.")
+    assert announcer.texts[-1].endswith("Siti dan Budi! Selamat datang di Instansi Kami.")
 
 
 def test_streak_is_per_person(setup):
@@ -109,3 +109,19 @@ def test_camera_and_form_panels_are_resizable_and_remembered(setup, qt_widgets):
     reopened = VisitPage(service, settings, announcer)
     qt_widgets(reopened)
     assert reopened.findChild(QSplitter).sizes() == saved
+
+
+def test_camera_switch_button_outside_kiosk_only(setup, qt_widgets):
+    settings, service, page, announcer, _ = setup
+    assert page.video.switch_button is not None
+    kiosk = VisitPage(service, settings, announcer, kiosk=True)
+    qt_widgets(kiosk)
+    assert kiosk.video.switch_button is None  # pengunjung tidak bisa mengganti kamera
+    chosen = []
+    page.video.camera_selected.connect(chosen.append)
+    menu = page.video.switch_button.menu()
+    page.video._fill_camera_menu(menu)
+    actions = [a for a in menu.actions() if a.isEnabled()]
+    if actions:  # mesin CI mungkin tanpa kamera
+        actions[-1].trigger()
+        assert chosen == [len(actions) - 1]

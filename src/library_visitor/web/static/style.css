@@ -104,3 +104,36 @@ button.block { width: 100%; margin-top: 16px; }
 }
 .toast.error { background: var(--danger); }
 .toast.ok { background: var(--success); }
+
+/* ---------- tautan bergaya tombol & header ---------- */
+a.button {
+  display: inline-block; font-weight: 600; padding: 10px 16px; border-radius: 8px;
+  text-decoration: none; color: var(--text-soft); white-space: nowrap;
+}
+a.button:hover { background: var(--primary-soft); color: var(--primary); }
+.top-actions { display: flex; gap: 4px; align-items: center; }
+@media (max-width: 420px) { .top-actions a.button { padding: 10px 8px; font-size: 14px; } }
+
+/* ---------- dokumentasi API ---------- */
+main.doc { max-width: 900px; padding-bottom: 32px; }
+.doc h2 { font-size: 19px; color: var(--text); margin: 0 0 10px; }
+.doc h3 { font-size: 15px; margin: 18px 0 6px; color: var(--text-soft); }
+.doc p, .doc li { color: var(--text-soft); }
+.doc a { color: var(--primary); }
+.doc code {
+  font-family: Consolas, "Cascadia Code", ui-monospace, monospace; font-size: 13.5px;
+  background: var(--surface-alt); border: 1px solid var(--border); border-radius: 5px; padding: 1px 5px;
+}
+.doc pre {
+  margin: 8px 0 12px; padding: 12px 14px; overflow-x: auto; border-radius: 10px;
+  background: #0F172A; color: #E2E8F0; line-height: 1.45;
+}
+.doc pre code { background: none; border: 0; padding: 0; color: inherit; font-size: 13px; white-space: pre; }
+.doc table { width: 100%; border-collapse: collapse; margin: 8px 0 12px; font-size: 14px; }
+.doc th, .doc td { text-align: left; vertical-align: top; padding: 8px 10px; border-bottom: 1px solid var(--border); }
+.doc th { color: var(--muted); font-weight: 600; background: var(--surface-alt); }
+.doc .note {
+  padding: 10px 12px; border-radius: 8px; background: #FFFBEB; border-left: 4px solid #D97706; color: #78350F;
+}
+.toc ol { margin: 6px 0 0; padding-left: 20px; columns: 2; }
+@media (max-width: 560px) { .toc ol { columns: 1; } .doc table { font-size: 13px; } }

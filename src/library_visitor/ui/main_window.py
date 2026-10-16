@@ -161,6 +161,8 @@ class MainWindow(QMainWindow):
         self.visit_page.members_changed.connect(self._update_status)
         self.visit_page.kiosk_requested.connect(self.open_kiosk)
         self.settings_page.saved.connect(self._on_settings_saved)
+        for view in (self.visit_page.video, self.register_page.video):
+            view.camera_selected.connect(self._select_camera)
         self.settings_page.license_change_requested.connect(self._change_license)
         self._apply_settings()
         self._update_status()
@@ -204,6 +206,21 @@ class MainWindow(QMainWindow):
         self._worker.frame_ready.connect(self._on_frame)
         self._worker.failed.connect(self._on_camera_error)
         self._worker.start()
+
+    def _select_camera(self, index: int) -> None:
+        """Ganti kamera dari tombol di atas tampilan kamera; disimpan seperti di Pengaturan."""
+        s = self._settings
+        if index == s.camera_index and self._worker is not None:
+            return
+        s.camera_index = index
+        try:
+            s.save()
+        except OSError as exc:
+            log.warning("Pilihan kamera tidak bisa disimpan: %s", exc)
+        self.settings_page.refresh()
+        self._apply_settings()
+        self.start_camera()
+        self.statusBar().showMessage(f"Kamera diganti ke #{index}", 5000)
 
     def stop_camera(self) -> None:
         if self._worker is not None:
@@ -394,7 +411,7 @@ class MainWindow(QMainWindow):
         s = self._settings
         self.setWindowTitle(f"Buku Tamu {s.library_name}")
         self.brand.setText(s.library_name)
-        self.brand_sub.setText(s.licensee or "Buku Tamu Perpustakaan")
+        self.brand_sub.setText(s.licensee or "Penerima Tamu")
         self.brand_logo.setPixmap(logo_pixmap(s, 32))
         self._service.matcher.threshold = s.match_threshold
         self._service.cooldown = timedelta(minutes=s.visit_cooldown_minutes)
@@ -402,6 +419,8 @@ class MainWindow(QMainWindow):
             s.visit_cooldown_minutes * 60, s.anonymous_same_threshold, s.anonymous_min_frames
         )
         self.announcer.apply_settings()
+        for view in (self.visit_page.video, self.register_page.video):
+            view.set_current_camera(s.camera_index)
         self.visit_page.apply_settings()
         if self._kiosk is not None:
             self._kiosk.page.apply_settings()

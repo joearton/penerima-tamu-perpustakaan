@@ -1,0 +1,213 @@
+<!doctype html>
+<html lang="id">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#2563EB">
+  <title>Dokumentasi API · Penerima Tamu</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body class="docs">
+  <header class="topbar">
+    <div class="brand">
+      <strong>Dokumentasi API</strong>
+      <small>Penerima Tamu · visitor counter</small>
+    </div>
+    <a class="button ghost" href="/">Registrasi</a>
+  </header>
+
+  <main class="doc">
+    <nav class="card toc" aria-label="Daftar isi">
+      <strong>Isi</strong>
+      <ol>
+        <li><a href="#ringkasan">Ringkasan</a></li>
+        <li><a href="#autentikasi">Autentikasi</a></li>
+        <li><a href="#endpoint">Endpoint registrasi</a></li>
+        <li><a href="#galat">Format galat</a></li>
+        <li><a href="#contoh">Contoh curl</a></li>
+        <li><a href="#direktori">Integrasi direktori anggota</a></li>
+        <li><a href="#oidc">Login admin OAuth2 / OpenID Connect</a></li>
+      </ol>
+    </nav>
+
+    <section id="ringkasan" class="card">
+      <h2>1. Ringkasan</h2>
+      <p>Aplikasi Penerima Tamu menyediakan API JSON untuk mendaftarkan anggota beserta wajahnya dari
+        perangkat lain di jaringan lokal. Laman registrasi web memakai API yang sama.</p>
+      <table>
+        <tr><th>Alamat dasar</th><td><code>https://&lt;IP-PC&gt;:&lt;port&gt;</code> (port default 8443, lihat Pengaturan → Registrasi via Web)</td></tr>
+        <tr><th>Format</th><td>JSON UTF-8, baik permintaan maupun respons</td></tr>
+        <tr><th>Akses</th><td>Hanya alamat jaringan lokal (10.x, 172.16–31.x, 192.168.x, loopback). Permintaan dari luar ditolak <code>403</code>.</td></tr>
+        <tr><th>TLS</th><td>Sertifikat dibuat sendiri oleh aplikasi; klien perlu mempercayainya atau melewati verifikasi (mis. <code>curl -k</code>).</td></tr>
+        <tr><th>Privasi</th><td>Foto wajah hanya diproses lalu dibuang; yang disimpan hanya embedding wajah.</td></tr>
+      </table>
+    </section>
+
+    <section id="autentikasi" class="card">
+      <h2>2. Autentikasi</h2>
+      <ol>
+        <li>Kirim <code>POST /api/login</code> berisi PIN admin aplikasi.</li>
+        <li>Server mengembalikan cookie sesi <code>pt_session</code> (HttpOnly, Secure, SameSite=Strict) yang berlaku 8 jam.</li>
+        <li>Sertakan cookie itu di setiap permintaan berikutnya.</li>
+      </ol>
+      <p>Setiap <code>POST</code> wajib membawa header berikut (perlindungan CSRF):</p>
+      <pre><code>Content-Type: application/json
+X-Requested-With: penerima-tamu</code></pre>
+      <p class="note">Setelah 5 kali PIN salah dari alamat IP yang sama, IP itu dikunci 60 detik (<code>429</code>).
+        API hanya aktif bila PIN admin sudah diatur.</p>
+    </section>
+
+    <section id="endpoint" class="card">
+      <h2>3. Endpoint registrasi</h2>
+      <table>
+        <tr><th>Metode &amp; path</th><th>Login</th><th>Fungsi</th></tr>
+        <tr><td><code>POST /api/login</code></td><td>–</td><td>Masuk dengan PIN, mengembalikan cookie sesi</td></tr>
+        <tr><td><code>POST /api/logout</code></td><td>–</td><td>Mengakhiri sesi</td></tr>
+        <tr><td><code>GET /api/session</code></td><td>–</td><td>Cek apakah sesi masih berlaku</td></tr>
+        <tr><td><code>GET /api/meta</code></td><td>ya</td><td>Info lokasi, daftar kategori, jumlah sampel wajah</td></tr>
+        <tr><td><code>GET /api/search?q=</code></td><td>ya</td><td>Cari anggota (lokal + direktori) untuk auto-complete</td></tr>
+        <tr><td><code>GET /api/lookup?no=</code></td><td>ya</td><td>Data satu anggota berdasarkan nomor</td></tr>
+        <tr><td><code>POST /api/register</code></td><td>ya</td><td>Simpan anggota dan (opsional) wajahnya</td></tr>
+      </table>
+
+      <h3><code>POST /api/login</code></h3>
+      <pre><code>{"pin": "&lt;PIN-admin&gt;"}
+→ 200 {"ok": true}            + Set-Cookie: pt_session=...
+→ 401 {"error": "PIN admin salah"}</code></pre>
+
+      <h3><code>GET /api/session</code></h3>
+      <pre><code>→ 200 {"authenticated": true}</code></pre>
+
+      <h3><code>GET /api/meta</code></h3>
+      <pre><code>→ 200 {
+  "library": "Nama lokasi",
+  "institution": "Nama institusi pemegang lisensi",
+  "categories": ["Mahasiswa", "Dosen", "Staf", "Umum"],
+  "samples": 5,          // jumlah sampel wajah yang disarankan
+  "lookup": true,        // direktori anggota tersedia
+  "search": true         // pencarian direktori tersedia
+}</code></pre>
+
+      <h3><code>GET /api/search?q=&lt;teks&gt;</code></h3>
+      <p>Minimal 2 karakter (pencarian direktori minimal 3). Maksimal 10 hasil.</p>
+      <pre><code>→ 200 {"results": [
+  {"member_no": "2301001", "name": "Siti Aminah", "category": "Mahasiswa",
+   "unit": "Informatika", "status": "Aktif", "registered": true, "has_face": true}
+]}</code></pre>
+
+      <h3><code>GET /api/lookup?no=&lt;nomor&gt;</code></h3>
+      <p>Mencari di data lokal lalu di direktori anggota. <code>photo</code> berisi foto profil dari direktori
+        (data URL) bila tersedia; hanya untuk ditampilkan.</p>
+      <pre><code>→ 200 {"found": true, "member_no": "2203117", "name": "Dewi Lestari",
+       "category": "Mahasiswa", "unit": "Manajemen", "status": "Aktif",
+       "registered": false, "has_face": false, "source": "direktori",
+       "photo": "data:image/jpeg;base64,..."}
+→ 200 {"found": false, "photo": ""}</code></pre>
+
+      <h3><code>POST /api/register</code></h3>
+      <table>
+        <tr><th>Field</th><th>Keterangan</th></tr>
+        <tr><td><code>member_no</code>, <code>name</code></td><td>Wajib</td></tr>
+        <tr><td><code>category</code></td><td>Salah satu dari <code>categories</code>; selain itu menjadi <code>Umum</code></td></tr>
+        <tr><td><code>unit</code></td><td>Prodi / unit kerja (opsional)</td></tr>
+        <tr><td><code>images</code></td><td>Daftar foto JPEG/PNG base64 (boleh data URL), maksimal 20 foto @ 3 MB. Kosong = simpan data saja.</td></tr>
+        <tr><td><code>consent</code></td><td>Wajib <code>true</code> bila ada foto (persetujuan data biometrik)</td></tr>
+        <tr><td><code>confirm_duplicate</code></td><td><code>true</code> untuk tetap menyimpan walau wajah mirip anggota lain</td></tr>
+        <tr><td><code>from_directory</code>, <code>status</code></td><td>Tandai data berasal dari direktori beserta statusnya</td></tr>
+      </table>
+      <p>Setiap foto harus berisi tepat satu wajah yang cukup besar dan lolos anti-spoofing. Minimal 60% foto harus lolos.</p>
+      <pre><code>→ 200 {"member_no": "2203117", "name": "Dewi Lestari", "face_saved": true, "samples": 6}
+→ 409 {"error": "Wajah ini mirip dengan ...", "duplicate": "Budi Santoso", "score": 0.52}
+→ 422 {"error": "Hanya 2 dari 7 foto yang bisa dipakai ...", "problems": ["Foto 3: wajah tidak terdeteksi", ...]}</code></pre>
+    </section>
+
+    <section id="galat" class="card">
+      <h2>4. Format galat</h2>
+      <p>Semua galat berbentuk <code>{"error": "pesan yang bisa ditampilkan"}</code>, kadang dengan field tambahan.</p>
+      <table>
+        <tr><th>Kode</th><th>Arti</th></tr>
+        <tr><td><code>400</code></td><td>Data tidak lengkap / tidak valid</td></tr>
+        <tr><td><code>401</code></td><td>Belum login atau PIN salah</td></tr>
+        <tr><td><code>403</code></td><td>Bukan jaringan lokal, atau header <code>X-Requested-With</code> tidak ada</td></tr>
+        <tr><td><code>409</code></td><td>Wajah mirip anggota lain (kirim ulang dengan <code>confirm_duplicate</code>)</td></tr>
+        <tr><td><code>413</code> / <code>415</code></td><td>Data terlalu besar / bukan JSON</td></tr>
+        <tr><td><code>422</code></td><td>Terlalu sedikit foto wajah yang memenuhi syarat (lihat <code>problems</code>)</td></tr>
+        <tr><td><code>429</code></td><td>Terlalu banyak percobaan PIN; tunggu sebentar</td></tr>
+        <tr><td><code>502</code></td><td>Direktori anggota tidak bisa dihubungi</td></tr>
+      </table>
+    </section>
+
+    <section id="contoh" class="card">
+      <h2>5. Contoh curl</h2>
+      <pre><code>BASE=https://192.168.1.20:8443
+H='-H Content-Type:application/json -H X-Requested-With:penerima-tamu'
+
+# login, simpan cookie sesi
+curl -k -c sesi.txt $H -d '{"pin":"&lt;PIN-admin&gt;"}' $BASE/api/login
+
+# cari anggota
+curl -k -b sesi.txt "$BASE/api/search?q=siti"
+
+# daftarkan anggota beserta foto wajah
+IMG=$(base64 -w0 wajah1.jpg)
+curl -k -b sesi.txt $H $BASE/api/register -d "{
+  \"member_no\": \"2203117\", \"name\": \"Dewi Lestari\", \"category\": \"Mahasiswa\",
+  \"consent\": true, \"images\": [\"$IMG\", \"$IMG\", \"$IMG\"] }"</code></pre>
+    </section>
+
+    <section id="direktori" class="card">
+      <h2>6. Integrasi direktori anggota</h2>
+      <p>Opsional. Bila instansi memiliki sistem data anggota (mis. sistem akademik atau kepegawaian), aplikasi
+        dapat mengambil data anggota dari sana. Sistem instansi cukup menyediakan endpoint read-only berikut, lalu
+        alamat dan kredensialnya diisi di file <code>.env</code> aplikasi.</p>
+      <table>
+        <tr><th>Variabel <code>.env</code></th><th>Keterangan</th></tr>
+        <tr><td><code>DIRECTORY_LOOKUP_URL</code></td><td>Wajib. URL dengan placeholder <code>{nomor}</code>, mis. <code>https://contoh.ac.id/api/members/{nomor}/</code></td></tr>
+        <tr><td><code>DIRECTORY_API_KEY</code>, <code>DIRECTORY_API_SECRET</code></td><td>Dikirim sebagai header <code>X-API-Key</code> dan <code>X-API-Secret</code></td></tr>
+        <tr><td><code>DIRECTORY_SEARCH_URL</code></td><td>Opsional, untuk auto-complete</td></tr>
+        <tr><td><code>DIRECTORY_FACES_URL</code></td><td>Opsional, galeri foto untuk tebakan identitas saat registrasi</td></tr>
+      </table>
+
+      <h3>Lookup (wajib)</h3>
+      <pre><code>GET {DIRECTORY_LOOKUP_URL dengan {nomor} terisi}
+→ 200 {"status": true, "data": {
+         "member_no": "2021010123", "name": "Siti Aminah", "category": "Mahasiswa",
+         "unit": "Informatika", "status": "Aktif",
+         "photo": "&lt;JPEG base64 atau URL&gt;"      // opsional, foto profil
+       }}
+→ 404 anggota tidak ditemukan · 401/403 kredensial ditolak · 429 batas laju</code></pre>
+      <p><code>category</code> dikenali sebagai <code>Mahasiswa</code>, <code>Dosen</code>, atau <code>Staf</code>; nilai lain menjadi
+        <code>Umum</code>. Foto juga boleh dikirim lewat field <code>photo_url</code> atau <code>picture</code>. Kredensial hanya
+        dikirim bila URL foto berada di host yang sama dengan URL lookup.</p>
+
+      <h3>Pencarian (opsional)</h3>
+      <pre><code>GET {DIRECTORY_SEARCH_URL}?q=&lt;teks&gt;&amp;limit=&lt;n&gt;
+→ 200 {"status": true, "data": [&lt;objek anggota seperti di atas&gt;, ...]}</code></pre>
+
+      <h3>Galeri foto (opsional)</h3>
+      <pre><code>GET {DIRECTORY_FACES_URL}?page=&lt;n&gt;&amp;per_page=100[&amp;updated_since=&lt;ISO8601&gt;]
+→ 200 {"status": true,
+       "data": [{&lt;objek anggota&gt;, "photo": "&lt;JPEG base64&gt;", "photo_updated_at": "2026-10-01T08:00:00"}],
+       "meta": {"current_page": 1, "last_page": 12, "total": 1150}}</code></pre>
+      <p class="note">Hanya field di atas yang dipakai; respons mentah tidak disimpan atau ditulis ke log. Berikan kunci API
+        dengan hak akses seminimal mungkin (read-only, hanya endpoint ini).</p>
+    </section>
+
+    <section id="oidc" class="card">
+      <h2>7. Login admin OAuth2 / OpenID Connect</h2>
+      <p>Opsional. Admin dapat masuk ke tab admin aplikasi desktop memakai akun dari penyedia identitas instansi
+        (authorization code + PKCE S256, klien public tanpa secret, redirect loopback).</p>
+      <table>
+        <tr><th>Variabel <code>.env</code></th><th>Keterangan</th></tr>
+        <tr><td><code>OAUTH_AUTHORIZE_URL</code>, <code>OAUTH_TOKEN_URL</code>, <code>OAUTH_USERINFO_URL</code></td><td>Endpoint penyedia identitas</td></tr>
+        <tr><td><code>OAUTH_CLIENT_ID</code></td><td>ID klien public</td></tr>
+        <tr><td><code>OAUTH_REDIRECT_URI</code></td><td>Default <code>http://127.0.0.1:8765/callback</code>; daftarkan persis di penyedia identitas</td></tr>
+        <tr><td><code>OAUTH_SCOPE</code>, <code>OAUTH_LABEL</code></td><td>Default <code>openid profile email</code> dan teks tombol login</td></tr>
+      </table>
+      <p>Userinfo dibaca dari <code>preferred_username</code> (atau <code>sub</code>), <code>name</code>, dan <code>groups</code>.
+        Username atau grup yang boleh masuk diatur di Pengaturan → Keamanan. Login ini hanya untuk aplikasi desktop,
+        bukan untuk API di atas.</p>
+    </section>
+  </main>
+</body>
+</html>

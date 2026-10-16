@@ -78,7 +78,7 @@ class SettingsPage(QWidget):
 
         # --- Identitas & lisensi ---
         self.library_name = QLineEdit()
-        self.library_address = QLineEdit(placeholderText="Alamat lengkap perpustakaan")
+        self.library_address = QLineEdit(placeholderText="Alamat lengkap lokasi")
         self.library_contact = QLineEdit(placeholderText="Telepon / email / situs web")
         self.logo_preview = QLabel()
         self.logo_preview.setFixedSize(56, 56)
@@ -99,9 +99,9 @@ class SettingsPage(QWidget):
         license_row.addWidget(
             QPushButton("Ganti Lisensi...", clicked=lambda: self.license_change_requested.emit())
         )
-        identity = QGroupBox("Identitas Perpustakaan")
+        identity = QGroupBox("Identitas Lokasi")
         f = QFormLayout(identity)
-        f.addRow("Nama perpustakaan", self.library_name)
+        f.addRow("Nama lokasi", self.library_name)
         f.addRow("Alamat", self.library_address)
         f.addRow("Kontak", self.library_contact)
         f.addRow("Logo", logo_row)
@@ -452,7 +452,7 @@ class SettingsPage(QWidget):
 
     def _values(self) -> dict:
         return {
-            "library_name": self.library_name.text().strip() or "Perpustakaan",
+            "library_name": self.library_name.text().strip() or "Instansi Kami",
             "library_address": self.library_address.text().strip(),
             "library_contact": self.library_contact.text().strip(),
             "kiosk_on_start": self.kiosk_on_start.isChecked(),
@@ -545,7 +545,7 @@ class SettingsPage(QWidget):
 
     def _choose_logo(self) -> None:
         path, _ = QFileDialog.getOpenFileName(
-            self, "Pilih logo perpustakaan", "", "Gambar (*.png *.jpg *.jpeg *.bmp *.svg)"
+            self, "Pilih logo", "", "Gambar (*.png *.jpg *.jpeg *.bmp *.svg)"
         )
         if not path:
             return
@@ -607,7 +607,7 @@ class SettingsPage(QWidget):
                 self.greeting_template.text(),
                 "Siti Aminah",
                 "Mahasiswa",
-                self.library_name.text().strip() or "Perpustakaan",
+                self.library_name.text().strip() or "Instansi Kami",
             )
         )
 

@@ -109,7 +109,7 @@ def main() -> int:
     from library_visitor.ui.theme import apply_theme
 
     app = QApplication(sys.argv)
-    app.setApplicationName("Penerima Tamu Perpustakaan")
+    app.setApplicationName("Penerima Tamu")
     app.setDesktopFileName("penerima-tamu-perpustakaan")  # cocokkan ikon di Wayland/GNOME
     app.setWindowIcon(QIcon(str(Path(__file__).with_name("ui") / "icon.png")))
     apply_theme(app)

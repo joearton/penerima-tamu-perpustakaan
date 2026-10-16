@@ -1,15 +1,18 @@
 from __future__ import annotations
 
-from PySide6.QtCore import Qt, QTimer
-from PySide6.QtGui import QImage, QPixmap
+from PySide6.QtCore import Qt, QTimer, Signal
+from PySide6.QtGui import QImage, QPixmap, QResizeEvent
+from PySide6.QtMultimedia import QMediaDevices
 from PySide6.QtWidgets import (
     QApplication,
     QLabel,
     QLayout,
+    QMenu,
     QSizePolicy,
     QSplitter,
     QTableWidget,
     QTableWidgetItem,
+    QToolButton,
     QWidget,
 )
 
@@ -19,14 +22,58 @@ SPLITTER_SAVE_DELAY_MS = 800
 
 
 class VideoView(QLabel):
-    """Menampilkan frame kamera dengan rasio aspek tetap."""
+    """Menampilkan frame kamera dengan rasio aspek tetap.
 
-    def __init__(self) -> None:
+    `camera_switch=True` menambah tombol "Ganti Kamera" di pojok kanan atas (bukan untuk kios).
+    """
+
+    camera_selected = Signal(int)  # indeks kamera yang dipilih
+
+    def __init__(self, camera_switch: bool = False) -> None:
         super().__init__("Kamera belum aktif")
         self.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.setMinimumSize(480, 270)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self.setStyleSheet("background:#0F172A; color:#94A3B8; border-radius:12px; font-size:14px;")
+        self.current_camera = 0
+        self.switch_button: QToolButton | None = None
+        if camera_switch:
+            button = QToolButton(self)
+            button.setObjectName("cameraSwitch")
+            button.setText("Ganti Kamera  ▾")
+            button.setCursor(Qt.CursorShape.PointingHandCursor)
+            button.setFocusPolicy(Qt.FocusPolicy.NoFocus)  # fokus tetap di input scan kartu
+            button.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+            menu = QMenu(button)
+            menu.aboutToShow.connect(lambda: self._fill_camera_menu(menu))
+            button.setMenu(menu)
+            self.switch_button = button
+
+    def _fill_camera_menu(self, menu: QMenu) -> None:
+        """Daftar kamera dibaca saat menu dibuka, jadi webcam yang baru dicolok ikut muncul."""
+        menu.clear()
+        devices = QMediaDevices.videoInputs()
+        if not devices:
+            menu.addAction("Tidak ada kamera terdeteksi").setEnabled(False)
+            return
+        for i, device in enumerate(devices):
+            action = menu.addAction(f"{device.description()}")
+            action.setCheckable(True)
+            action.setChecked(i == self.current_camera)
+            action.triggered.connect(lambda _=False, i=i: self.camera_selected.emit(i))
+
+    def set_current_camera(self, index: int) -> None:
+        self.current_camera = index
+        if self.switch_button is not None:
+            devices = QMediaDevices.videoInputs()
+            name = devices[index].description() if 0 <= index < len(devices) else f"#{index}"
+            self.switch_button.setToolTip(f"Kamera aktif: {name}")
+
+    def resizeEvent(self, event: QResizeEvent) -> None:
+        super().resizeEvent(event)
+        if self.switch_button is not None:
+            self.switch_button.adjustSize()
+            self.switch_button.move(self.width() - self.switch_button.width() - 12, 12)
 
     def show_image(self, image: QImage) -> None:
         self.setPixmap(
@@ -99,7 +146,7 @@ def resizable_split(
 
 
 def logo_pixmap(settings: Settings, size: int) -> QPixmap:
-    """Logo perpustakaan (bila diatur) atau ikon aplikasi, diskalakan ke kotak `size`."""
+    """Logo lokasi (bila diatur) atau ikon aplikasi, diskalakan ke kotak `size`."""
     path = settings.logo_path
     pixmap = QPixmap(str(path)) if path else QPixmap()
     if pixmap.isNull():

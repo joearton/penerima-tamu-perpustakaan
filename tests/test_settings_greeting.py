@@ -6,7 +6,7 @@ from library_visitor.config import Settings
 
 def test_settings_roundtrip_and_pin(tmp_path):
     s = Settings.load(tmp_path)
-    assert s.library_name == "Perpustakaan"
+    assert s.library_name == "Instansi Kami"
     s.update({"library_name": "Perpus UIN", "volume": "55", "unknown_key": 1})
     s.set_pin("1234")
     s.save()
@@ -46,3 +46,11 @@ def test_render_group_joins_names():
     assert two == "Siti Aminah dan Budi Santoso"
     same_category = greeting.render_group("{kategori}", [people[0], people[2]])
     assert same_category == "Mahasiswa"
+
+
+def test_location_placeholder_and_legacy_alias():
+    from library_visitor import greeting
+
+    new = greeting.render("Selamat datang di {lokasi}.", "Siti", "Umum", "Museum Kota")
+    old = greeting.render("Selamat datang di {perpustakaan}.", "Siti", "Umum", "Museum Kota")
+    assert new == old == "Selamat datang di Museum Kota."

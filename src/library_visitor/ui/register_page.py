@@ -43,7 +43,7 @@ PHOTO_SIZE = 120  # px, foto profil dari direktori
 
 CONSENT_TEXT = (
     "Anggota menyetujui pengolahan data biometrik wajah untuk keperluan "
-    "pencatatan kunjungan perpustakaan (UU No. 27/2022 tentang PDP)."
+    "pencatatan kunjungan (UU No. 27/2022 tentang PDP)."
 )
 
 
@@ -77,7 +77,7 @@ class RegisterPage(QWidget):
         self._collecting = False
         self._last_sample = 0.0
 
-        self.video = VideoView()
+        self.video = VideoView(camera_switch=True)
         self.progress = QProgressBar(maximum=settings.enroll_samples, format="%v / %m sampel")
         self.hint = QLabel('Isi data anggota, lalu klik "Ambil Wajah".')
         self.hint.setWordWrap(True)

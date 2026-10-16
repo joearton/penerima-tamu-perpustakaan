@@ -221,6 +221,14 @@ QCheckBox::indicator:checked {{
 }}
 QCheckBox::indicator:disabled {{ background: {SURFACE_ALT}; border-color: {BORDER}; }}
 
+/* ---------- tombol ganti kamera di atas tampilan kamera ---------- */
+QToolButton#cameraSwitch {{
+    background: rgba(15, 23, 42, 0.72); color: white; font-weight: 600;
+    border: 1px solid rgba(255, 255, 255, 0.25); border-radius: 8px; padding: 6px 12px;
+}}
+QToolButton#cameraSwitch:hover {{ background: rgba(37, 99, 235, 0.9); }}
+QToolButton#cameraSwitch::menu-indicator {{ image: none; width: 0; }}
+
 /* ---------- lain-lain ---------- */
 QProgressBar {{
     background: {BORDER}; border: none; border-radius: 8px; min-height: 18px;

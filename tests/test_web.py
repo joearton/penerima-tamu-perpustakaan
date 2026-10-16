@@ -151,6 +151,8 @@ def test_server_end_to_end(setup):
         assert status == 200 and b"Registrasi Anggota" in body
         assert "frame-ancestors 'none'" in headers["Content-Security-Policy"]
         assert call("/api/meta")[0] == 401
+        status, _, body = call("/docs")  # dokumentasi API terbuka tanpa login
+        assert status == 200 and b"Dokumentasi API" in body and b"/api/register" in body
         assert call("/api/login", {"pin": "0000"})[0] == 401
         assert call("/api/login", {"pin": "2468"}, headers={"X-Requested-With": ""})[0] == 403
         status, headers, _ = call("/api/login", {"pin": "2468"})

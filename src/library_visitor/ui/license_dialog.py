@@ -35,7 +35,7 @@ class LicenseDialog(QDialog):
         self.setWindowTitle("Aktivasi Lisensi" if startup else "Lisensi")
         self.setMinimumWidth(560)
 
-        title = role(QLabel("Aktivasi Penerima Tamu Perpustakaan"), "title")
+        title = role(QLabel("Aktivasi Penerima Tamu"), "title")
         intro = role(
             QLabel(
                 "Masukkan key lisensi dari penyedia aplikasi. Key memuat nama institusi "

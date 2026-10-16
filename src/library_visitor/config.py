@@ -14,6 +14,7 @@ from pathlib import Path
 log = logging.getLogger(__name__)
 
 
+# Nama folder data dipertahankan agar instalasi lama tetap menemukan database & lisensinya
 APP_DIR_NAME = "PenerimaTamuPerpustakaan"
 
 
@@ -54,7 +55,7 @@ class Settings:
     home: Path = field(default_factory=default_home, metadata={"persist": False})
 
     # Umum
-    library_name: str = "Perpustakaan"
+    library_name: str = "Instansi Kami"  # nama lokasi yang dikunjungi (perpustakaan, kantor, dll.)
     # Identitas (nama institusi diambil dari lisensi)
     library_address: str = ""
     library_contact: str = ""  # telepon / email / situs
@@ -101,11 +102,12 @@ class Settings:
     anonymous_min_frames: int = 10  # lebih ketat dari anggota agar orang lewat tidak terhitung
     anonymous_same_threshold: float = 0.40  # kemiripan untuk dianggap orang yang sama
 
-    # Sapaan. Placeholder: {salam} {nama} {nama_depan} {kategori} {perpustakaan}
-    greeting_template: str = "{salam}, {nama_depan}! Selamat datang di {perpustakaan}."
+    # Sapaan. Placeholder: {salam} {nama} {nama_depan} {kategori} {lokasi}
+    # ({perpustakaan} = nama lama {lokasi}, tetap didukung)
+    greeting_template: str = "{salam}, {nama_depan}! Selamat datang di {lokasi}."
     repeat_template: str = "Halo {nama_depan}, kunjungan Anda hari ini sudah tercatat."
-    guest_template: str = "{salam}, {nama}! Selamat datang di {perpustakaan}."
-    anonymous_template: str = "{salam}! Selamat datang di {perpustakaan}."
+    guest_template: str = "{salam}, {nama}! Selamat datang di {lokasi}."
+    anonymous_template: str = "{salam}! Selamat datang di {lokasi}."
     banner_seconds: int = 5
 
     # Suara

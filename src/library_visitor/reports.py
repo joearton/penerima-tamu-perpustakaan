@@ -31,9 +31,9 @@ def visits_dataframe(service: VisitorService, start: date, end: date) -> pd.Data
 
 
 def identity_rows(settings: Settings, start: date, end: date) -> pd.DataFrame:
-    """Sheet "Info": identitas perpustakaan dan periode laporan."""
+    """Sheet "Info": identitas lokasi dan periode laporan."""
     rows = [
-        ("Perpustakaan", settings.library_name),
+        ("Lokasi", settings.library_name),
         ("Institusi", settings.licensee),
         ("Alamat", settings.library_address),
         ("Kontak", settings.library_contact),

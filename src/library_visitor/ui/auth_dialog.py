@@ -135,7 +135,7 @@ class AdminAuthDialog(QDialog):
             return
         log.warning("Login ditolak, bukan admin: %s", user.username)
         self.login_btn.setEnabled(True)
-        self.status.setText(f"Akun {user.username} tidak terdaftar sebagai admin perpustakaan.")
+        self.status.setText(f"Akun {user.username} tidak terdaftar sebagai admin.")
 
     def _on_login_failed(self, message: str) -> None:
         if self.isVisible():

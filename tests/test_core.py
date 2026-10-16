@@ -86,5 +86,5 @@ def test_excel_includes_library_identity(service, tmp_path):
     sheets = pd.read_excel(path, sheet_name=None)
     assert list(sheets) == ["Info", "Detail", "Rekap Harian"]
     info = dict(zip(sheets["Info"]["Keterangan"], sheets["Info"]["Isi"], strict=True))
-    assert info["Perpustakaan"] == "Perpustakaan Pusat" and info["Institusi"] == "Univ Contoh"
+    assert info["Lokasi"] == "Perpustakaan Pusat" and info["Institusi"] == "Univ Contoh"
     assert "Kontak" not in info  # field kosong tidak ditulis

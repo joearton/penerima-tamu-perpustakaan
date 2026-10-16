@@ -38,6 +38,7 @@ log = logging.getLogger(__name__)
 STATIC_DIR = Path(__file__).with_name("static")
 STATIC_FILES = {
     "/": ("index.html", "text/html; charset=utf-8"),
+    "/docs": ("docs.html", "text/html; charset=utf-8"),
     "/app.js": ("app.js", "text/javascript; charset=utf-8"),
     "/style.css": ("style.css", "text/css; charset=utf-8"),
 }

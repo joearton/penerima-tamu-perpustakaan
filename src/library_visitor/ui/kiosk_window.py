@@ -18,7 +18,7 @@ class KioskWindow(QWidget):
 
     def __init__(self, page: VisitPage, authenticate: Callable[[QWidget], bool]) -> None:
         super().__init__(None, Qt.WindowType.Window)
-        self.setWindowTitle("Mode Kios - Penerima Tamu Perpustakaan")
+        self.setWindowTitle("Mode Kios - Penerima Tamu")
         self.page = page
         self._authenticate = authenticate
         self._allow_close = False

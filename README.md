@@ -1,6 +1,6 @@
-# Penerima Tamu Perpustakaan
+# Penerima Tamu (Visitor Counter)
 
-Aplikasi desktop untuk mencatat pengunjung perpustakaan dengan **face recognition**: anggota cukup menghadap kamera, lalu kunjungannya tercatat dan mereka disambut dengan sapaan suara.
+Aplikasi desktop untuk mencatat dan menghitung pengunjung dengan **face recognition**: perpustakaan, kantor, layanan publik, museum, ruang baca, atau lokasi lain. Anggota cukup menghadap kamera, lalu kunjungannya tercatat dan mereka disambut dengan sapaan suara. Tamu non-anggota dicatat lewat form singkat, dan wajah yang tidak dikenal tetap terhitung sebagai pengunjung anonim.
 
 **Stack:** Python 3.11+ · PySide6 (Qt 6 + QtMultimedia) · OpenCV DNN (deteksi YuNet, pengenalan SFace, anti-spoofing MiniFASNet) · SQLite/SQLAlchemy · pandas/openpyxl · gTTS
 
@@ -44,16 +44,17 @@ Anggota bisa didaftarkan dari HP atau laptop petugas lewat browser, dengan wajah
 - Aktifkan di **Pengaturan → Registrasi via Web (LAN)** dan tentukan port (default 8443). Fitur ini butuh **PIN admin**, yang juga dipakai untuk login di web.
 - Buka alamat yang ditampilkan (mis. `https://192.168.1.20:8443`) dari perangkat di jaringan yang sama. Sertifikat HTTPS dibuat otomatis di `data/web/`, karena browser hanya mengizinkan kamera di halaman HTTPS. Peringatan sertifikat muncul sekali per perangkat; pilih lanjutkan.
 - Isi data (dengan auto-complete, lookup, dan foto profil direktori), ambil beberapa foto wajah, centang persetujuan, lalu simpan. Foto diproses di PC dengan model wajah dan anti-spoofing yang sama dengan aplikasi, lalu dibuang. Yang disimpan hanya embedding.
+- Dokumentasi API (endpoint, autentikasi, contoh `curl`, dan kontrak integrasi direktori) tersedia di `https://<IP-PC>:<port>/docs`.
 - Keamanan: hanya alamat jaringan lokal yang diterima. Setelah 5 kali PIN salah, alamat IP tersebut dikunci 60 detik. Sesi login berlaku 8 jam dan disimpan di cookie HttpOnly/Secure/SameSite=Strict. Saat pertama aktif, Windows akan meminta izin firewall untuk port tersebut.
 
-## Identitas perpustakaan
-Diatur di **Pengaturan → Identitas Perpustakaan**: nama perpustakaan, alamat, kontak, dan logo. Logo disalin ke `data/logo.png`. Nama institusi diambil dari lisensi. Identitas ini tampil di header aplikasi, layar Mode Kios, dan sheet **Info** pada ekspor Excel.
+## Identitas lokasi
+Diatur di **Pengaturan → Identitas Lokasi**: nama lokasi (mis. Perpustakaan Pusat, Kantor Dinas, Museum Kota), alamat, kontak, dan logo. Logo disalin ke `data/logo.png`. Nama institusi diambil dari lisensi. Identitas ini tampil di header aplikasi, layar Mode Kios, dan sheet **Info** pada ekspor Excel.
 
 ## Konfigurasi
 Pengaturan aplikasi diubah dari tab **Pengaturan** dan disimpan di `data/settings.json`.
 Lokasi folder data/model bisa dipindah dengan environment variable `LV_HOME`.
 
-Placeholder sapaan: `{salam}`, `{nama}`, `{nama_depan}`, `{kategori}`, `{perpustakaan}`.
+Placeholder sapaan: `{salam}`, `{nama}`, `{nama_depan}`, `{kategori}`, `{lokasi}`. Template lama yang memakai `{perpustakaan}` tetap berfungsi.
 
 **Lupa PIN admin?** Tutup aplikasi (dari Mode Kios, tekan Esc lalu **Tutup Aplikasi**), kemudian jalankan `library-visitor --reset-pin <PIN baru>` (versi terinstal: `penerima-tamu --reset-pin <PIN baru>`). PIN berupa angka, minimal 4 digit.
 
@@ -146,7 +147,7 @@ packaging/           spec PyInstaller, ikon, installer Linux & Windows
 ```
 
 ## Installer
-Paket siap pakai untuk PC perpustakaan. Model wajah sudah dibundel, jadi tidak perlu internet saat pertama dijalankan.
+Paket siap pakai untuk PC di lokasi. Model wajah sudah dibundel, jadi tidak perlu internet saat pertama dijalankan.
 
 ### Windows
 Build di Windows dengan Python 3.11+ dan [Inno Setup 6](https://jrsoftware.org/isdl.php):

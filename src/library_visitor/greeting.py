@@ -9,7 +9,7 @@ PLACEHOLDERS = {
     "{nama}": "nama lengkap",
     "{nama_depan}": "kata pertama dari nama",
     "{kategori}": "kategori anggota",
-    "{perpustakaan}": "nama perpustakaan",
+    "{lokasi}": "nama lokasi/instansi yang dikunjungi",
 }
 
 
@@ -65,7 +65,8 @@ def render_group(
         nama=join_names([name for name, _ in people]),
         nama_depan=join_names([_first_name(name) for name, _ in people]),
         kategori=categories.pop() if len(categories) == 1 else "",
-        perpustakaan=library,
+        lokasi=library,
+        perpustakaan=library,  # nama lama, tetap didukung untuk template lama
     )
     try:
         return template.format_map(values)
