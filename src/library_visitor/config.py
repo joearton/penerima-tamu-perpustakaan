@@ -71,6 +71,16 @@ class Settings:
     # Beberapa wajah: catat semua anggota yang dikenali dalam satu frame (bukan hanya terdekat)
     multi_face: bool = True
     max_faces: int = 4
+
+    # Tebakan identitas saat registrasi dari galeri foto direktori
+    photo_suggest_enabled: bool = True
+    photo_suggest_count: int = 3
+    photo_suggest_min_score: float = 0.30
+    gallery_auto_sync: bool = True  # sinkron inkremental otomatis sekali sehari
+    # Filter galeri (kosong = tanpa filter); dipisahkan koma
+    gallery_categories: str = ""  # mis. "Mahasiswa"
+    gallery_prefixes: str = ""  # awalan nomor induk, mis. "23,24,25,26"
+    gallery_status: str = ""  # status wajib, mis. "Aktif"
     enroll_samples: int = 5
     # Anti-spoofing (MiniFASNet): tolak wajah dari foto/layar
     antispoof_enabled: bool = True
@@ -78,11 +88,16 @@ class Settings:
 
     # Kunjungan: anggota yang sama tidak dicatat ulang dalam rentang ini
     visit_cooldown_minutes: int = 30
+    # Pengunjung tak dikenal dihitung "Anonim" (embedding hanya di memori selama jeda catat ulang)
+    anonymous_enabled: bool = True
+    anonymous_min_frames: int = 10  # lebih ketat dari anggota agar orang lewat tidak terhitung
+    anonymous_same_threshold: float = 0.40  # kemiripan untuk dianggap orang yang sama
 
     # Sapaan. Placeholder: {salam} {nama} {nama_depan} {kategori} {perpustakaan}
     greeting_template: str = "{salam}, {nama_depan}! Selamat datang di {perpustakaan}."
     repeat_template: str = "Halo {nama_depan}, kunjungan Anda hari ini sudah tercatat."
     guest_template: str = "{salam}, {nama}! Selamat datang di {perpustakaan}."
+    anonymous_template: str = "{salam}! Selamat datang di {perpustakaan}."
     banner_seconds: int = 5
 
     # Suara

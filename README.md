@@ -7,7 +7,9 @@ Aplikasi desktop untuk mencatat pengunjung perpustakaan dengan **face recognitio
 ## Fitur
 - **Kunjungan:** wajah anggota dikenali otomatis dari kamera lalu kunjungan dicatat. Ada jeda catat ulang supaya orang yang sama tidak tercatat berkali-kali. Tersedia juga input manual (No. anggota / scan barcode) dan form tamu non-anggota.
 - **Beberapa wajah sekaligus:** semua anggota yang dikenali dalam satu frame dicatat bersamaan dan disapa dalam satu sapaan ("Selamat pagi, Siti dan Budi!"). Konfirmasi wajah dihitung per orang. Bisa diubah ke mode satu wajah terdekat, dan jumlah maksimal wajah per frame bisa diatur.
+- **Pengunjung anonim:** wajah yang tidak dikenali dan terlihat stabil beberapa frame dihitung sebagai kunjungan "Anonim" (hanya waktunya yang dicatat). Supaya orang yang sama tidak terhitung berulang, wajahnya diingat **di memori saja** selama jeda catat ulang, lalu dibuang. Kalau orang itu kemudian scan kartu atau mengisi form tamu, catatan anonimnya dihapus otomatis agar tidak ganda. Jumlahnya perkiraan, dan fitur ini bisa dimatikan di Pengaturan.
 - **Anti-spoofing:** wajah dari foto cetak atau layar HP ditolak, baik saat kunjungan maupun registrasi, memakai MiniFASNet (sekitar 3 ms per wajah di CPU). Ambang skornya bisa diatur di Pengaturan.
+- **Bantuan registrasi:** auto-complete nomor induk dan nama (anggota lokal + pencarian direktori), serta **tebakan identitas dari foto profil direktori**: wajah di kamera dicocokkan ke galeri foto, lalu beberapa calon terdekat ditampilkan untuk dipilih.
 - **Registrasi Anggota:** mengambil beberapa sampel wajah, wajib dengan persetujuan data biometrik. Ada peringatan bila wajahnya mirip anggota lain.
 - **Data Anggota:** cari, hapus data wajah, atau hapus anggota. Riwayat kunjungan anggota yang dihapus tetap ada tetapi dianonimkan.
 - **Laporan:** filter per rentang tanggal dan ekspor Excel (sheet detail + rekap harian per kategori).
@@ -67,6 +69,18 @@ Sebaiknya API key yang dipakai hanya punya akses ke endpoint lookup ini, dengan 
 
 Tes koneksi: `.venv/bin/library-visitor --lookup <nomor>`
 
+**Opsional, auto-complete:** isi `DIRECTORY_SEARCH_URL`. Aplikasi memanggil `GET <url>?q=<teks>&limit=<n>` (minimal 3 karakter) dan mengharapkan `{"status": true, "data": [<objek anggota>, ...]}`.
+
+**Opsional, galeri foto (tebakan identitas saat registrasi):** isi `DIRECTORY_FACES_URL`. Aplikasi memanggil `GET <url>?page=<n>&per_page=100[&updated_since=<ISO8601>]` dan mengharapkan:
+```json
+{"status": true,
+ "data": [{"member_no": "...", "name": "...", "category": "...", "unit": "...", "status": "...",
+           "photo": "<JPEG base64>", "photo_updated_at": "2026-10-01T08:00:00"}],
+ "meta": {"current_page": 1, "last_page": 12, "total": 1150}}
+```
+Foto hanya diproses di memori menjadi embedding wajah lalu dibuang. Yang disimpan hanya embedding dan data minimal di atas. Sinkron berjalan otomatis sekali sehari (inkremental lewat `updated_since`) atau manual dari **Pengaturan → Galeri Foto Direktori**. Di sana juga bisa diatur filter isi galeri (kategori, awalan nomor induk, status), jumlah tebakan, dan kemiripan minimal.
+> Galeri ini berisi data biometrik orang yang belum tentu memberi persetujuan langsung. Pastikan institusi memiliki dasar pemrosesan yang sah (UU PDP), dan batasi isinya seperlunya lewat filter di server maupun di aplikasi.
+
 ### 2. Login admin via OAuth2 / OpenID Connect
 Dialog akses admin menampilkan tombol login eksternal. Alurnya memakai authorization code + PKCE (S256) dengan klien public tanpa secret, dan redirect loopback ke `http://127.0.0.1:8765/callback`. Daftarkan redirect URI ini persis di penyedia identitas.
 
@@ -95,6 +109,7 @@ src/library_visitor/
   directory_api.py   klien API direktori anggota (read-only, field minimal)
   oidc_login.py      login admin OAuth2/OIDC (PKCE, redirect loopback)
   backups.py         backup harian otomatis + rotasi
+  gallery.py         galeri embedding dari foto direktori + sinkron
   face/              engine YuNet+SFace, matcher, anti-spoofing, unduh model
   ui/                jendela utama, halaman-halaman, jendela Mode Kios
 tests/               pytest

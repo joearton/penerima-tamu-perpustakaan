@@ -21,6 +21,7 @@ from PySide6.QtWidgets import (
 )
 
 from library_visitor import greeting
+from library_visitor.anonymous import AnonymousTracker
 from library_visitor.audio import Announcer
 from library_visitor.camera import FaceResult
 from library_visitor.config import Settings
@@ -79,9 +80,11 @@ class VisitPage(QWidget):
         announcer: Announcer,
         directory: MemberDirectory | None = None,
         kiosk: bool = False,
+        anonymous: AnonymousTracker | None = None,
     ) -> None:
         super().__init__()
         self._kiosk = kiosk
+        self._anonymous = anonymous
         self._directory = directory
         self._executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="visit-lookup")
         self._lookup_done.connect(self._on_lookup_done)
@@ -212,8 +215,6 @@ class VisitPage(QWidget):
             if count >= self._settings.stable_frames
             and now - self._last_handled.get(mid, 0) >= RECHECK_SECONDS
         ]
-        if not ready:
-            return
         visit_results = []
         for match in ready:
             self._last_handled[match.member_id] = now
@@ -226,6 +227,44 @@ class VisitPage(QWidget):
                 self._show(str(exc), ERROR_STYLE)
         if visit_results:
             self._greet_many(visit_results)
+
+        if self._anonymous is not None and self._settings.anonymous_enabled:
+            unknown = [
+                r.embedding
+                for r in faces
+                if r.embedding is not None and r.match is None and not r.spoof
+            ]
+            self._record_anonymous(unknown, now, greeted=bool(visit_results))
+
+    def _record_anonymous(self, unknown: list, now: float, greeted: bool) -> None:
+        recorded = 0
+        for embedding in self._anonymous.observe(unknown, now):
+            try:
+                visit = self._service.record_anonymous_visit()
+            except ServiceError as exc:
+                self._show(str(exc), ERROR_STYLE)
+                continue
+            self._anonymous.attach(embedding, visit.id, now)
+            recorded += 1
+        if not recorded:
+            return
+        log.info("Kunjungan anonim: %d orang", recorded)
+        if not greeted:  # sapaan anggota (bila ada di frame yang sama) didahulukan
+            s = self._settings
+            text = greeting.render_group(s.anonymous_template, [], s.library_name)
+            self._show(text, OK_STYLE)
+            self._announcer.announce(text)
+        self.refresh()
+        self.visit_recorded.emit()
+
+    def _claim_anonymous(self) -> None:
+        """Orang di depan kamera ternyata scan kartu/isi form tamu: jangan dihitung anonim."""
+        if self._anonymous is None:
+            return
+        visit_id = self._anonymous.claim_recent(time.monotonic())
+        if visit_id is not None:
+            self._service.delete_visit(visit_id)
+            log.info("Kunjungan anonim #%d digabung dengan pencatatan manual", visit_id)
 
     # ---------- input manual ----------
 
@@ -245,6 +284,7 @@ class VisitPage(QWidget):
             self._show(str(exc), ERROR_STYLE)
             return
         self.member_no.clear()
+        self._claim_anonymous()
         self._greet(result)
 
     def _lookup_worker(self, number: str) -> None:
@@ -274,6 +314,7 @@ class VisitPage(QWidget):
         log.info("Anggota baru dari direktori saat kunjungan: %s", number)
         self.member_no.clear()
         self.members_changed.emit()
+        self._claim_anonymous()
         self._greet(result)
 
     def _on_lookup_failed(self, message: str) -> None:
@@ -299,6 +340,7 @@ class VisitPage(QWidget):
         except ServiceError as exc:
             self._show(str(exc), ERROR_STYLE)
             return False
+        self._claim_anonymous()
         s = self._settings
         text = greeting.render(s.guest_template, name, "Tamu", s.library_name)
         self._show(text, OK_STYLE)

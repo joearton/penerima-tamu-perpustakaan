@@ -7,9 +7,9 @@ from pathlib import Path
 
 import pandas as pd
 
-from library_visitor.services import VisitorService, visitor_name
+from library_visitor.services import VisitorService, visit_category, visitor_name
 
-METHOD_LABELS = {"face": "Wajah", "manual": "Manual", "guest": "Tamu"}
+METHOD_LABELS = {"face": "Wajah", "manual": "Manual", "guest": "Tamu", "anonymous": "Anonim"}
 REPORT_COLUMNS = ("Waktu", "No. Anggota", "Nama", "Kategori", "Prodi/Unit", "Metode", "Keperluan")
 
 
@@ -19,7 +19,7 @@ def visits_dataframe(service: VisitorService, start: date, end: date) -> pd.Data
             "Waktu": v.visited_at,
             "No. Anggota": v.member.member_no if v.member else "",
             "Nama": visitor_name(v),
-            "Kategori": v.member.category if v.member else "Tamu",
+            "Kategori": visit_category(v),
             "Prodi/Unit": (v.member.unit or "") if v.member else "",
             "Metode": METHOD_LABELS.get(v.method, v.method),
             "Keperluan": v.purpose or "",

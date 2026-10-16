@@ -80,6 +80,7 @@ def main() -> int:
 
     from library_visitor.db import create_session_factory
     from library_visitor.face import FaceMatcher
+    from library_visitor.gallery import FaceGallery
     from library_visitor.services import VisitorService
     from library_visitor.ui.main_window import MainWindow
 
@@ -88,14 +89,15 @@ def main() -> int:
     app.setDesktopFileName("penerima-tamu-perpustakaan")  # cocokkan ikon di Wayland/GNOME
     app.setWindowIcon(QIcon(str(Path(__file__).with_name("ui") / "icon.png")))
 
+    sessions = create_session_factory(settings.database_path)
     service = VisitorService(
-        create_session_factory(settings.database_path),
-        FaceMatcher(settings.match_threshold),
-        settings.visit_cooldown_minutes,
+        sessions, FaceMatcher(settings.match_threshold), settings.visit_cooldown_minutes
     )
     log.info("Aplikasi dimulai, %d wajah terdaftar", service.load_matcher())
+    gallery = FaceGallery(sessions)
+    log.info("Galeri foto direktori: %d wajah", gallery.load())
 
-    window = MainWindow(service, settings, extensions)
+    window = MainWindow(service, settings, extensions, gallery)
     window.show()
     window.start_camera()
     if settings.kiosk_on_start:

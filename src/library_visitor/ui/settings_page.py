@@ -51,6 +51,8 @@ def _hint(text: str) -> QLabel:
 
 class SettingsPage(QWidget):
     saved = Signal(set)  # nama-nama field yang berubah
+    gallery_sync_requested = Signal(bool)  # True = sinkron ulang penuh
+    gallery_clear_requested = Signal()
 
     def __init__(
         self, settings: Settings, announcer: Announcer, external_login_available: bool = False
@@ -121,6 +123,10 @@ class SettingsPage(QWidget):
         self.greeting_template = QLineEdit()
         self.repeat_template = QLineEdit()
         self.guest_template = QLineEdit()
+        self.anonymous_template = QLineEdit()
+        self.anonymous_enabled = QCheckBox("Hitung wajah tak dikenal sebagai pengunjung anonim")
+        self.anonymous_min_frames = _spin(2, 60, " frame")
+        self.anonymous_same = _dspin(0.20, 0.90, 0.01)
         self.preview = QLabel()
         self.preview.setWordWrap(True)
         self.preview.setStyleSheet("background:#eef6ee; padding:6px; border-radius:4px;")
@@ -133,6 +139,18 @@ class SettingsPage(QWidget):
         f.addRow("Sapaan anggota", self.greeting_template)
         f.addRow("Sudah tercatat", self.repeat_template)
         f.addRow("Sapaan tamu", self.guest_template)
+        f.addRow("Sapaan anonim", self.anonymous_template)
+        f.addRow(self.anonymous_enabled)
+        f.addRow("Konfirmasi anonim", self.anonymous_min_frames)
+        f.addRow("Kemiripan orang sama", self.anonymous_same)
+        f.addRow(
+            _hint(
+                "Jumlah anonim adalah perkiraan. Wajahnya hanya diingat di memori selama jeda "
+                "catat ulang agar tidak terhitung berulang, lalu dibuang; tidak ada nama, foto, "
+                "atau embedding yang disimpan. Bila orang yang sama lalu scan kartu atau mengisi "
+                "form tamu, catatan anonimnya dihapus otomatis."
+            )
+        )
         f.addRow("Contoh", self.preview)
         f.addRow(
             _hint(
@@ -226,6 +244,45 @@ class SettingsPage(QWidget):
         )
         f.addRow(QPushButton("Backup Manual...", clicked=self._backup))
 
+        # --- Galeri foto direktori ---
+        self.photo_suggest = QCheckBox("Tampilkan tebakan identitas saat registrasi")
+        self.photo_suggest_count = _spin(1, 10, " tebakan")
+        self.photo_suggest_min = _dspin(0.10, 0.90, 0.01)
+        self.gallery_auto_sync = QCheckBox("Sinkron otomatis sekali sehari")
+        self.gallery_categories = QLineEdit(placeholderText="mis. Mahasiswa (kosong = semua)")
+        self.gallery_prefixes = QLineEdit(placeholderText="mis. 23,24,25,26 (kosong = semua)")
+        self.gallery_status_filter = QLineEdit(placeholderText="mis. Aktif (kosong = semua)")
+        self.gallery_info = QLabel("-")
+        self.gallery_info.setWordWrap(True)
+        gallery = QGroupBox("Galeri Foto Direktori")
+        f = QFormLayout(gallery)
+        f.addRow(self.photo_suggest)
+        f.addRow("Jumlah tebakan", self.photo_suggest_count)
+        f.addRow("Kemiripan minimal", self.photo_suggest_min)
+        f.addRow(self.gallery_auto_sync)
+        f.addRow("Kategori", self.gallery_categories)
+        f.addRow("Awalan nomor", self.gallery_prefixes)
+        f.addRow("Status", self.gallery_status_filter)
+        f.addRow("Isi galeri", self.gallery_info)
+        sync_row = QHBoxLayout()
+        sync_row.addWidget(
+            QPushButton("Sinkron", clicked=lambda: self.gallery_sync_requested.emit(False))
+        )
+        sync_row.addWidget(
+            QPushButton(
+                "Sinkron Ulang Penuh", clicked=lambda: self.gallery_sync_requested.emit(True)
+            )
+        )
+        sync_row.addWidget(QPushButton("Hapus Galeri", clicked=self._confirm_clear_gallery))
+        f.addRow(sync_row)
+        f.addRow(
+            _hint(
+                "Foto profil dari direktori hanya diubah menjadi embedding wajah lalu dibuang; "
+                "foto tidak disimpan. Mengubah filter memicu sinkron ulang penuh. Butuh "
+                "DIRECTORY_FACES_URL di .env."
+            )
+        )
+
         # --- Tata letak ---
         grid = QGridLayout()
         grid.addWidget(general, 0, 0)
@@ -233,6 +290,7 @@ class SettingsPage(QWidget):
         grid.addWidget(security, 2, 0)
         grid.addWidget(greet, 0, 1, 2, 1)
         grid.addWidget(sound, 2, 1)
+        grid.addWidget(gallery, 3, 1)
         grid.setColumnStretch(0, 1)
         grid.setColumnStretch(1, 1)
         content = QWidget()
@@ -268,6 +326,13 @@ class SettingsPage(QWidget):
         self.auto_backup.setChecked(s.auto_backup_enabled)
         self.backup_dir.setText(s.backup_dir)
         self.backup_keep.setValue(s.backup_keep)
+        self.photo_suggest.setChecked(s.photo_suggest_enabled)
+        self.photo_suggest_count.setValue(s.photo_suggest_count)
+        self.photo_suggest_min.setValue(s.photo_suggest_min_score)
+        self.gallery_auto_sync.setChecked(s.gallery_auto_sync)
+        self.gallery_categories.setText(s.gallery_categories)
+        self.gallery_prefixes.setText(s.gallery_prefixes)
+        self.gallery_status_filter.setText(s.gallery_status)
         existing = list_backups(backup_dir(s))
         self.backup_status.setText(existing[0].name if existing else "belum ada")
         self._scan_cameras()
@@ -281,6 +346,10 @@ class SettingsPage(QWidget):
         self.greeting_template.setText(s.greeting_template)
         self.repeat_template.setText(s.repeat_template)
         self.guest_template.setText(s.guest_template)
+        self.anonymous_template.setText(s.anonymous_template)
+        self.anonymous_enabled.setChecked(s.anonymous_enabled)
+        self.anonymous_min_frames.setValue(s.anonymous_min_frames)
+        self.anonymous_same.setValue(s.anonymous_same_threshold)
         self.sound_enabled.setChecked(s.sound_enabled)
         self.sound_file.setText(s.sound_file)
         self.tts_enabled.setChecked(s.tts_enabled)
@@ -307,6 +376,13 @@ class SettingsPage(QWidget):
             "auto_backup_enabled": self.auto_backup.isChecked(),
             "backup_dir": self.backup_dir.text().strip(),
             "backup_keep": self.backup_keep.value(),
+            "photo_suggest_enabled": self.photo_suggest.isChecked(),
+            "photo_suggest_count": self.photo_suggest_count.value(),
+            "photo_suggest_min_score": self.photo_suggest_min.value(),
+            "gallery_auto_sync": self.gallery_auto_sync.isChecked(),
+            "gallery_categories": self.gallery_categories.text().strip(),
+            "gallery_prefixes": self.gallery_prefixes.text().replace(" ", ""),
+            "gallery_status": self.gallery_status_filter.text().strip(),
             "camera_index": self.camera_index.currentData(),
             "match_threshold": self.match_threshold.value(),
             "detect_score": self.detect_score.value(),
@@ -318,6 +394,10 @@ class SettingsPage(QWidget):
             "greeting_template": self.greeting_template.text(),
             "repeat_template": self.repeat_template.text(),
             "guest_template": self.guest_template.text(),
+            "anonymous_template": self.anonymous_template.text(),
+            "anonymous_enabled": self.anonymous_enabled.isChecked(),
+            "anonymous_min_frames": self.anonymous_min_frames.value(),
+            "anonymous_same_threshold": self.anonymous_same.value(),
             "sound_enabled": self.sound_enabled.isChecked(),
             "sound_file": self.sound_file.text().strip(),
             "tts_enabled": self.tts_enabled.isChecked(),
@@ -398,6 +478,16 @@ class SettingsPage(QWidget):
         path = QFileDialog.getExistingDirectory(self, "Pilih folder backup")
         if path:
             self.backup_dir.setText(path)
+
+    def set_gallery_info(self, text: str) -> None:
+        self.gallery_info.setText(text)
+
+    def _confirm_clear_gallery(self) -> None:
+        answer = QMessageBox.question(
+            self, "Hapus galeri", "Hapus semua embedding foto direktori dari PC ini?"
+        )
+        if answer == QMessageBox.StandardButton.Yes:
+            self.gallery_clear_requested.emit()
 
     def _backup(self) -> None:
         default = f"library_visitor_backup_{datetime.now():%Y%m%d_%H%M}.db"

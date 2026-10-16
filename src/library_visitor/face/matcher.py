@@ -78,6 +78,15 @@ class FaceMatcher:
                 return None
             return Match(self._ids[idx], self._labels[idx], float(scores[idx]))
 
+    def top(self, embedding: np.ndarray, k: int) -> list[Match]:
+        """k kandidat terdekat, skor tertinggi dulu (tanpa ambang)."""
+        with self._lock:
+            if not self._ids or k <= 0:
+                return []
+            scores = self._matrix @ normalize(embedding)
+            order = np.argsort(-scores)[:k]
+            return [Match(self._ids[i], self._labels[i], float(scores[i])) for i in order]
+
     def match(self, embedding: np.ndarray) -> Match | None:
         best = self.best(embedding)
         return best if best and best.score >= self.threshold else None

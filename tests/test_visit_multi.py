@@ -5,7 +5,6 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 import numpy as np  # noqa: E402
 import pytest  # noqa: E402
 from PySide6.QtGui import QImage  # noqa: E402
-from PySide6.QtWidgets import QApplication  # noqa: E402
 
 from library_visitor.camera import FaceResult  # noqa: E402
 from library_visitor.config import Settings  # noqa: E402
@@ -28,8 +27,7 @@ def emb(seed):
 
 
 @pytest.fixture
-def setup(tmp_path):
-    QApplication.instance() or QApplication([])
+def setup(tmp_path, qt_widgets):
     settings = Settings(home=tmp_path)
     service = VisitorService(create_session_factory(":memory:"), FaceMatcher(0.4), 30)
     ids = [
@@ -38,6 +36,7 @@ def setup(tmp_path):
     ]
     announcer = SilentAnnouncer()
     page = VisitPage(service, settings, announcer)
+    qt_widgets(page)
     return settings, service, page, announcer, ids
 
 

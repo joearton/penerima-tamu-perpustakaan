@@ -24,9 +24,14 @@ from PySide6.QtWidgets import (
 
 from library_visitor.db import Visit
 from library_visitor.reports import METHOD_LABELS
-from library_visitor.services import visitor_name
+from library_visitor.services import visit_category, visitor_name
 
-METHOD_COLORS = {"face": "#1e8449", "manual": "#2471a3", "guest": "#b9770e"}
+METHOD_COLORS = {
+    "face": "#1e8449",
+    "manual": "#2471a3",
+    "guest": "#b9770e",
+    "anonymous": "#7f8c8d",
+}
 SUBTITLE_ROLE = Qt.ItemDataRole.UserRole + 1
 COL_TIME, COL_NAME, COL_CATEGORY, COL_METHOD = range(4)
 
@@ -174,10 +179,15 @@ class TodayVisitsCard(QFrame):
 
     def set_visits(self, visits: list[Visit]) -> None:
         guests = sum(1 for v in visits if v.method == "guest")
+        anonymous = sum(1 for v in visits if v.method == "anonymous")
+        members = len(visits) - guests - anonymous
         self.count.setText(str(len(visits)))
-        self.summary.setText(f"{len(visits) - guests} anggota · {guests} tamu" if visits else "")
+        parts = [f"{members} anggota", f"{guests} tamu"] + (
+            [f"{anonymous} anonim"] if anonymous else []
+        )
+        self.summary.setText(" · ".join(parts) if visits else "")
         if not self._show_names:
-            per_category = Counter(v.member.category if v.member else "Tamu" for v in visits)
+            per_category = Counter(visit_category(v) for v in visits)
             self.big_count.setText(str(len(visits)))
             self.big_detail.setText(
                 "   ·   ".join(f"{k}: {n}" for k, n in sorted(per_category.items()))
@@ -196,7 +206,7 @@ class TodayVisitsCard(QFrame):
                 name_item.setData(SUBTITLE_ROLE, v.member.unit or v.member.member_no)
             elif v.purpose:
                 name_item.setData(SUBTITLE_ROLE, f"Keperluan: {v.purpose}")
-            category = v.member.category if v.member else "Tamu"
+            category = visit_category(v)
             method_item = _item(METHOD_LABELS.get(v.method, v.method))
             method_item.setForeground(QColor(METHOD_COLORS.get(v.method, "#555")))
             bold = method_item.font()

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import time
+from collections import deque
 from concurrent.futures import ThreadPoolExecutor
 
 import numpy as np
@@ -10,6 +11,7 @@ from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
     QFormLayout,
+    QGroupBox,
     QHBoxLayout,
     QLabel,
     QLineEdit,
@@ -24,10 +26,15 @@ from library_visitor.camera import FaceResult
 from library_visitor.config import Settings
 from library_visitor.extensions import DirectoryPerson, ExtensionError, MemberDirectory
 from library_visitor.face import normalize
+from library_visitor.gallery import Candidate, FaceGallery
 from library_visitor.services import CATEGORIES, ServiceError, VisitorService
+from library_visitor.ui.member_completer import MemberCompleter
 from library_visitor.ui.widgets import VideoView
 
 SAMPLE_INTERVAL = 0.4  # detik antar sampel, agar variasi pose terekam
+SUGGEST_INTERVAL = 1.0  # detik antar pembaruan tebakan foto
+SUGGEST_WINDOW = 8  # embedding terakhir yang dirata-rata agar tebakan stabil
+SUGGEST_CLEAR_AFTER = 3.0  # detik tanpa wajah sebelum tebakan dihapus
 
 CONSENT_TEXT = (
     "Anggota menyetujui pengolahan data biometrik wajah untuk keperluan "
@@ -41,9 +48,17 @@ class RegisterPage(QWidget):
     _lookup_failed = Signal(str)
 
     def __init__(
-        self, service: VisitorService, settings: Settings, directory: MemberDirectory | None = None
+        self,
+        service: VisitorService,
+        settings: Settings,
+        directory: MemberDirectory | None = None,
+        gallery: FaceGallery | None = None,
     ) -> None:
         super().__init__()
+        self._gallery = gallery
+        self._recent: deque = deque(maxlen=SUGGEST_WINDOW)
+        self._last_suggest = 0.0
+        self._last_face = 0.0
         self._service = service
         self._settings = settings
         self._directory = directory
@@ -106,14 +121,96 @@ class RegisterPage(QWidget):
         buttons.addWidget(self.save_btn)
         buttons.addWidget(reset_btn)
 
+        for field, edit in (("member_no", self.member_no), ("name", self.name)):
+            MemberCompleter(edit, service, directory, field).chosen.connect(self._fill_person)
+
+        self.suggest_box = QGroupBox()
+        self.suggest_layout = QVBoxLayout(self.suggest_box)
+        suggest_title = QLabel("Tebakan dari foto profil")
+        suggest_title.setStyleSheet("font-weight:bold;")
+        self.suggest_layout.addWidget(suggest_title)
+        self.suggest_hint = QLabel("Hadapkan wajah ke kamera untuk melihat tebakan.")
+        self.suggest_hint.setWordWrap(True)
+        self.suggest_hint.setStyleSheet("color: palette(placeholder-text);")
+        self.suggest_layout.addWidget(self.suggest_hint)
+        self._suggest_buttons: list[QPushButton] = []
+
         right = QVBoxLayout()
         right.addLayout(form)
         right.addLayout(buttons)
+        right.addWidget(self.suggest_box)
         right.addStretch(1)
 
         layout = QHBoxLayout(self)
         layout.addLayout(left, 3)
         layout.addLayout(right, 2)
+        self.refresh()
+
+    def refresh(self) -> None:
+        self.suggest_box.setVisible(self._suggest_enabled())
+
+    def _suggest_enabled(self) -> bool:
+        return (
+            self._settings.photo_suggest_enabled
+            and self._gallery is not None
+            and len(self._gallery) > 0
+        )
+
+    def _fill_person(self, person: DirectoryPerson, registered: bool = False) -> None:
+        """Isi form dari hasil auto-complete atau tebakan foto."""
+        self.member_no.setText(person.member_no)
+        if registered or self._service.get_member_by_no(person.member_no) is not None:
+            self._load_existing()
+            return
+        self.name.setText(person.name)
+        self.category.setCurrentText(person.category)
+        self.unit.setText(person.unit)
+        self._directory_status = person.status or None
+        self.directory_label.setText(f"{person.category} · {person.status or 'status tidak ada'}")
+        self.hint.setText('Data terisi. Pastikan orangnya benar, lalu klik "Ambil Wajah".')
+
+    # ---------- tebakan dari foto ----------
+
+    def _update_suggestions(self, results: list[FaceResult]) -> None:
+        now = time.monotonic()
+        face = results[0] if len(results) == 1 else None
+        if face is None or face.embedding is None or face.spoof:
+            if self._recent and now - self._last_face > SUGGEST_CLEAR_AFTER:
+                self._recent.clear()
+                self._show_candidates([])
+            return
+        self._last_face = now
+        self._recent.append(face.embedding)
+        if now - self._last_suggest < SUGGEST_INTERVAL:
+            return
+        self._last_suggest = now
+        s = self._settings
+        mean = normalize(np.mean(list(self._recent), axis=0))
+        self._show_candidates(
+            self._gallery.top(mean, s.photo_suggest_count, s.photo_suggest_min_score)
+        )
+
+    def _show_candidates(self, candidates: list[Candidate]) -> None:
+        for button in self._suggest_buttons:
+            self.suggest_layout.removeWidget(button)
+            button.hide()  # langsung hilang; deleteLater baru diproses di siklus event berikutnya
+            button.deleteLater()
+        self._suggest_buttons = []
+        self.suggest_hint.setVisible(not candidates)
+        self.suggest_hint.setText(
+            "Tidak ada foto profil yang cukup mirip."
+            if self._recent
+            else "Hadapkan wajah ke kamera untuk melihat tebakan."
+        )
+        for c in candidates:
+            p = c.person
+            registered = self._service.get_member_by_no(p.member_no) is not None
+            detail = " · ".join(x for x in (p.unit, "sudah terdaftar" if registered else "") if x)
+            button = QPushButton(f"{p.name} — {p.member_no}\n{detail}   (kemiripan {c.score:.0%})")
+            button.setStyleSheet("text-align:left; padding:6px 10px;")
+            button.clicked.connect(lambda _=False, p=p, r=registered: self._fill_person(p, r))
+            self.suggest_layout.addWidget(button)
+            self._suggest_buttons.append(button)
 
     def _load_existing(self) -> None:
         member = self._service.get_member_by_no(self.member_no.text())
@@ -180,6 +277,8 @@ class RegisterPage(QWidget):
 
     def on_frame(self, image: QImage, results: list[FaceResult]) -> None:
         self.video.show_image(image)
+        if self._suggest_enabled():
+            self._update_suggestions(results)
         if not self._collecting:
             return
         if len(results) != 1:

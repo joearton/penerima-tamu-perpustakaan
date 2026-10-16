@@ -97,3 +97,64 @@ def test_from_env(monkeypatch):
     assert ApiDirectory.from_env().lookup_url == URL
     with pytest.raises(ValueError, match="nomor"):
         ApiDirectory("https://directory.example/api/members/", "a", "b")
+
+
+def json_urlopen(responses, seen):
+    """responses: daftar body JSON untuk dikembalikan berurutan."""
+    queue = list(responses)
+
+    def urlopen(req, timeout):
+        seen.append(req.full_url)
+        return FakeResponse(json.dumps(queue.pop(0)).encode())
+
+    return urlopen
+
+
+def test_search_requires_url_and_min_chars(monkeypatch):
+    seen = []
+    person = {"member_no": "2301", "name": "Siti", "category": "Mahasiswa", "unit": "TI"}
+    body = {"status": True, "data": [person, "bukan-objek"]}
+    monkeypatch.setattr(directory_api.urllib.request, "urlopen", json_urlopen([body], seen))
+    d = ApiDirectory(URL, "k", "s", search_url="https://directory.example/api/search/")
+    assert d.search("si") == []  # kurang dari 3 karakter: tidak memanggil server
+    result = d.search("siti a", limit=5)
+    assert [p.name for p in result] == ["Siti"]
+    assert seen == ["https://directory.example/api/search/?q=siti+a&limit=5"]
+    assert ApiDirectory(URL, "k", "s").search("siti") == []  # tanpa search_url
+
+
+def test_iter_photos_pages_and_skips_invalid(monkeypatch):
+    import base64
+
+    seen = []
+    ok = base64.b64encode(b"jpeg-1").decode()
+    page1 = {
+        "status": True,
+        "data": [
+            {
+                "member_no": "2301",
+                "name": "A",
+                "category": "Mahasiswa",
+                "photo": ok,
+                "photo_updated_at": "2026-10-01T00:00:00",
+            },
+            {"member_no": "2302", "name": "B", "photo": "%%%bukan-base64%%%"},
+            {"member_no": "2303", "name": "C"},
+        ],
+        "meta": {"current_page": 1, "last_page": 2},
+    }
+    page2 = {
+        "status": True,
+        "data": [{"member_no": "2304", "name": "D", "photo": ok}],
+        "meta": {"current_page": 2, "last_page": 2},
+    }
+    monkeypatch.setattr(directory_api.urllib.request, "urlopen", json_urlopen([page1, page2], seen))
+    d = ApiDirectory(URL, "k", "s", faces_url="https://directory.example/api/faces/")
+    photos = list(d.iter_photos(updated_since="2026-09-01T00:00:00"))
+    assert [(p.person.member_no, p.jpeg) for p in photos] == [
+        ("2301", b"jpeg-1"),
+        ("2304", b"jpeg-1"),
+    ]
+    assert photos[0].updated_at == "2026-10-01T00:00:00"
+    assert "page=1" in seen[0] and "updated_since=2026-09-01T00%3A00%3A00" in seen[0]
+    assert "page=2" in seen[1] and len(seen) == 2

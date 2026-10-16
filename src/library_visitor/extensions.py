@@ -7,7 +7,7 @@ penuh secara lokal. Implementasi lain cukup memenuhi Protocol di bawah.
 from __future__ import annotations
 
 import logging
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from typing import Protocol
 
@@ -27,10 +27,23 @@ class DirectoryPerson:
     status: str
 
 
+@dataclass(frozen=True)
+class DirectoryPhoto:
+    person: DirectoryPerson
+    jpeg: bytes
+    updated_at: str
+
+
 class MemberDirectory(Protocol):
     label: str  # teks tombol, mis. "Cari di direktori"
+    supports_search: bool  # untuk auto-complete
+    supports_faces: bool  # untuk galeri foto (tebakan identitas saat registrasi)
 
     def lookup(self, number: str) -> DirectoryPerson | None: ...
+
+    def search(self, text: str, limit: int = 10) -> list[DirectoryPerson]: ...
+
+    def iter_photos(self, updated_since: str | None = None) -> Iterator[DirectoryPhoto]: ...
 
 
 @dataclass(frozen=True)

@@ -50,11 +50,26 @@ class Visit(Base):
     )
     guest_name: Mapped[str | None] = mapped_column(String(150))
     purpose: Mapped[str | None] = mapped_column(String(200))
-    method: Mapped[str] = mapped_column(String(20))  # face | manual | guest
+    method: Mapped[str] = mapped_column(String(20))  # face | manual | guest | anonymous
     score: Mapped[float | None] = mapped_column(Float)
     visited_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now, index=True)
 
     member: Mapped[Member | None] = relationship(back_populates="visits")
+
+
+class DirectoryFace(Base):
+    """Galeri embedding dari foto direktori (foto aslinya tidak disimpan)."""
+
+    __tablename__ = "directory_faces"
+
+    member_no: Mapped[str] = mapped_column(String(50), primary_key=True)
+    name: Mapped[str] = mapped_column(String(150))
+    category: Mapped[str] = mapped_column(String(50))
+    unit: Mapped[str | None] = mapped_column(String(150))
+    status: Mapped[str | None] = mapped_column(String(50))
+    embedding: Mapped[bytes] = mapped_column(LargeBinary)
+    photo_updated_at: Mapped[str | None] = mapped_column(String(40))
+    synced_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
 
 
 def create_session_factory(db_path: Path | str) -> sessionmaker:

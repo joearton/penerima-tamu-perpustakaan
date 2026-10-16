@@ -111,11 +111,13 @@ class VisitorService:
                 s.delete(member)
         self.matcher.remove(member_id)
 
-    def list_members(self, search: str = "") -> list[Member]:
+    def list_members(self, search: str = "", limit: int | None = None) -> list[Member]:
         stmt = select(Member).order_by(Member.name)
         if search:
             like = f"%{search.strip()}%"
             stmt = stmt.where(or_(Member.name.ilike(like), Member.member_no.ilike(like)))
+        if limit:
+            stmt = stmt.limit(limit)
         with self._sessions() as s:
             return list(s.scalars(stmt))
 
@@ -150,6 +152,19 @@ class VisitorService:
             s.add(visit)
         return visit
 
+    def record_anonymous_visit(self) -> Visit:
+        """Pengunjung tak dikenal: hanya waktu yang dicatat (tanpa nama/foto/biometrik)."""
+        with self._sessions.begin() as s:
+            visit = Visit(method="anonymous")
+            s.add(visit)
+        return visit
+
+    def delete_visit(self, visit_id: int) -> None:
+        with self._sessions.begin() as s:
+            visit = s.get(Visit, visit_id)
+            if visit is not None:
+                s.delete(visit)
+
     def visits_between(self, start: date, end: date) -> list[Visit]:
         lo, hi = day_range(start, end)
         with self._sessions() as s:
@@ -173,4 +188,12 @@ class VisitorService:
 def visitor_name(visit: Visit) -> str:
     if visit.member is not None:
         return visit.member.name
+    if visit.method == "anonymous":
+        return "Pengunjung anonim"
     return visit.guest_name or "(anggota terhapus)"
+
+
+def visit_category(visit: Visit) -> str:
+    if visit.member is not None:
+        return visit.member.category
+    return "Anonim" if visit.method == "anonymous" else "Tamu"

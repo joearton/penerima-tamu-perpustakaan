@@ -1,17 +1,20 @@
 from __future__ import annotations
 
 import logging
-from datetime import timedelta
+import threading
+from datetime import datetime, timedelta
 
-from PySide6.QtCore import QTimer
+from PySide6.QtCore import QTimer, Signal
 from PySide6.QtGui import QAction, QCloseEvent, QImage, QKeySequence
 from PySide6.QtWidgets import QDialog, QMainWindow, QTabWidget, QWidget
 
+from library_visitor.anonymous import AnonymousTracker
 from library_visitor.audio import Announcer
 from library_visitor.backups import run_daily_backup
 from library_visitor.camera import CameraWorker
 from library_visitor.config import Settings
-from library_visitor.extensions import Extensions
+from library_visitor.extensions import ExtensionError, Extensions
+from library_visitor.gallery import FaceGallery, GalleryFilter, SyncStats, sync_gallery
 from library_visitor.services import VisitorService
 from library_visitor.ui.auth_dialog import AdminAuthDialog, external_admin_enabled
 from library_visitor.ui.kiosk_window import KioskWindow
@@ -34,12 +37,19 @@ CAMERA_FIELDS = {
 }
 
 
+GALLERY_FILTER_FIELDS = {"gallery_categories", "gallery_prefixes", "gallery_status"}
+
+
 class MainWindow(QMainWindow):
+    _gallery_progress = Signal(object)  # SyncStats
+    _gallery_done = Signal(object, str)  # SyncStats | None, pesan galat
+
     def __init__(
         self,
         service: VisitorService,
         settings: Settings,
         extensions: Extensions | None = None,
+        gallery: FaceGallery | None = None,
     ) -> None:
         super().__init__()
         self._service = service
@@ -54,8 +64,22 @@ class MainWindow(QMainWindow):
         self.announcer = Announcer(settings)
         self.announcer.failed.connect(lambda msg: self.statusBar().showMessage(msg, 8000))
 
-        self.visit_page = VisitPage(service, settings, self.announcer, self._extensions.directory)
-        self.register_page = RegisterPage(service, settings, self._extensions.directory)
+        # Satu pelacak anonim dipakai bersama halaman Kunjungan dan jendela kios
+        self.anonymous = AnonymousTracker(
+            settings.visit_cooldown_minutes * 60,
+            settings.anonymous_same_threshold,
+            settings.anonymous_min_frames,
+        )
+        self.visit_page = VisitPage(
+            service,
+            settings,
+            self.announcer,
+            self._extensions.directory,
+            anonymous=self.anonymous,
+        )
+        self._gallery = gallery
+        self._gallery_cancel: threading.Event | None = None
+        self.register_page = RegisterPage(service, settings, self._extensions.directory, gallery)
         self.members_page = MembersPage(service)
         self.report_page = ReportPage(service)
         self.settings_page = SettingsPage(
@@ -99,6 +123,13 @@ class MainWindow(QMainWindow):
         self._backup_timer.timeout.connect(self._auto_backup)
         self._backup_timer.start()
         QTimer.singleShot(3000, self._auto_backup)
+
+        self.settings_page.gallery_sync_requested.connect(self.start_gallery_sync)
+        self.settings_page.gallery_clear_requested.connect(self._clear_gallery)
+        self._gallery_progress.connect(self._on_gallery_progress)
+        self._gallery_done.connect(self._on_gallery_done)
+        self._update_gallery_info()
+        QTimer.singleShot(5000, self._auto_gallery_sync)
 
     # ---------- kamera ----------
 
@@ -177,7 +208,12 @@ class MainWindow(QMainWindow):
             self._kiosk.activateWindow()
             return
         page = VisitPage(
-            self._service, self._settings, self.announcer, self._extensions.directory, kiosk=True
+            self._service,
+            self._settings,
+            self.announcer,
+            self._extensions.directory,
+            kiosk=True,
+            anonymous=self.anonymous,
         )
         page.visit_recorded.connect(self.visit_page.refresh)
         page.members_changed.connect(self._update_status)
@@ -202,12 +238,104 @@ class MainWindow(QMainWindow):
         self._apply_settings()
         if changed & CAMERA_FIELDS:
             self.start_camera()
+        if changed & GALLERY_FILTER_FIELDS and self._gallery is not None:
+            self.start_gallery_sync(full=True)
+
+    # ---------- galeri foto direktori ----------
+
+    def _gallery_available(self) -> bool:
+        directory = self._extensions.directory
+        return self._gallery is not None and bool(getattr(directory, "supports_faces", False))
+
+    def start_gallery_sync(self, full: bool = False) -> None:
+        if not self._gallery_available():
+            self.statusBar().showMessage(
+                "Galeri foto tidak tersedia: isi DIRECTORY_FACES_URL di .env", 10000
+            )
+            return
+        if self._gallery_cancel is not None:
+            self.statusBar().showMessage("Sinkron galeri foto sedang berjalan", 5000)
+            return
+        self._gallery_cancel = threading.Event()
+        self.settings_page.set_gallery_info("Sinkron berjalan...")
+        args = (full, GalleryFilter.from_settings(self._settings), self._gallery_cancel)
+        threading.Thread(target=self._gallery_worker, args=args, daemon=True).start()
+
+    def _gallery_worker(self, full: bool, gfilter: GalleryFilter, cancel: threading.Event) -> None:
+        try:
+            stats = sync_gallery(
+                self._extensions.directory,
+                self._gallery,
+                self._settings.models_dir,
+                full=full,
+                gallery_filter=gfilter,
+                progress=self._gallery_progress.emit,
+                cancelled=cancel,
+            )
+        except ExtensionError as exc:
+            self._gallery_done.emit(None, str(exc))
+        except Exception as exc:  # galat tak terduga tidak boleh mematikan aplikasi
+            log.exception("Sinkron galeri foto gagal")
+            self._gallery_done.emit(None, str(exc))
+        else:
+            self._gallery_done.emit(stats, "")
+
+    def _on_gallery_progress(self, stats: SyncStats) -> None:
+        self.settings_page.set_gallery_info(
+            f"Sinkron berjalan... {stats.total} foto diproses, {stats.added} masuk galeri"
+        )
+
+    def _on_gallery_done(self, stats: SyncStats | None, error: str) -> None:
+        self._gallery_cancel = None
+        if stats is None:
+            self.statusBar().showMessage(f"Sinkron galeri foto gagal: {error}", 15000)
+        else:
+            self.statusBar().showMessage(
+                f"Galeri foto: {stats.added} ditambahkan/diperbarui, "
+                f"{stats.skipped} tanpa wajah, {stats.filtered} tidak lolos filter",
+                10000,
+            )
+        self._update_gallery_info(error)
+        self.register_page.refresh()
+
+    def _clear_gallery(self) -> None:
+        if self._gallery is None:
+            return
+        if self._gallery_cancel is not None:
+            self._gallery_cancel.set()
+        self._gallery.clear()
+        self._update_gallery_info()
+        self.register_page.refresh()
+
+    def _update_gallery_info(self, error: str = "") -> None:
+        if self._gallery is None:
+            self.settings_page.set_gallery_info("Tidak tersedia")
+            return
+        last = self._gallery.last_synced_at()
+        text = f"{len(self._gallery)} wajah"
+        if last:
+            text += f" · sinkron terakhir {last:%d-%m-%Y %H:%M}"
+        if not self._gallery_available():
+            text += " · DIRECTORY_FACES_URL belum diisi"
+        if error:
+            text += f" · galat: {error}"
+        self.settings_page.set_gallery_info(text)
+
+    def _auto_gallery_sync(self) -> None:
+        if not (self._settings.gallery_auto_sync and self._gallery_available()):
+            return
+        last = self._gallery.last_synced_at()
+        if last is None or datetime.now() - last > timedelta(days=1):
+            self.start_gallery_sync(full=False)
 
     def _apply_settings(self) -> None:
         s = self._settings
         self.setWindowTitle(f"Buku Tamu {s.library_name}")
         self._service.matcher.threshold = s.match_threshold
         self._service.cooldown = timedelta(minutes=s.visit_cooldown_minutes)
+        self.anonymous.configure(
+            s.visit_cooldown_minutes * 60, s.anonymous_same_threshold, s.anonymous_min_frames
+        )
         self.announcer.apply_settings()
         self.visit_page.apply_settings()
         if self._kiosk is not None:
@@ -216,6 +344,7 @@ class MainWindow(QMainWindow):
     # ---------- lain-lain ----------
 
     def _auto_backup(self) -> None:
+        self._auto_gallery_sync()  # ikut pengecekan per jam
         try:
             created = run_daily_backup(self._settings)
         except Exception as exc:  # disk penuh, folder tidak bisa ditulis, dll.
@@ -236,6 +365,8 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage(f"Wajah terdaftar: {len(self._service.matcher)}")
 
     def closeEvent(self, event: QCloseEvent) -> None:
+        if self._gallery_cancel is not None:
+            self._gallery_cancel.set()
         if self._kiosk is not None:
             self._kiosk.force_close()
         self.stop_camera()
