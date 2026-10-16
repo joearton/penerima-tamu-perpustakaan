@@ -80,6 +80,7 @@ QGroupBox::title {{
     subcontrol-origin: margin; subcontrol-position: top left;
     left: 4px; top: 0; padding: 0 4px; color: {TEXT_SOFT}; font-size: 13px;
 }}
+QGroupBox[untitled="true"] {{ margin-top: 0; padding-top: 16px; }}
 QFrame[card="true"] {{
     background: {SURFACE}; border: 1px solid {BORDER}; border-radius: 12px;
 }}

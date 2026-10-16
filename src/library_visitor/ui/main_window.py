@@ -3,14 +3,16 @@ from __future__ import annotations
 import logging
 import threading
 from datetime import datetime, timedelta
+from pathlib import Path
 
-from PySide6.QtCore import Qt, QTimer, Signal
-from PySide6.QtGui import QAction, QCloseEvent, QImage, QKeySequence
+from PySide6.QtCore import Qt, QTimer, QUrl, Signal
+from PySide6.QtGui import QAction, QCloseEvent, QDesktopServices, QImage, QKeySequence
 from PySide6.QtWidgets import (
     QDialog,
     QHBoxLayout,
     QLabel,
     QMainWindow,
+    QMessageBox,
     QPushButton,
     QTabWidget,
     QVBoxLayout,
@@ -52,6 +54,8 @@ CAMERA_FIELDS = {
     "max_faces",
 }
 
+
+GUIDE_PDF = Path(__file__).resolve().parent.parent / "docs" / "Panduan-Penerima-Tamu.pdf"
 
 GALLERY_FILTER_FIELDS = {"gallery_categories", "gallery_prefixes", "gallery_status"}
 WEB_FIELDS = {"web_enabled", "web_port", "admin_pin_hash"}
@@ -140,6 +144,7 @@ class MainWindow(QMainWindow):
         corner_row.setContentsMargins(0, 4, 12, 4)
         corner_row.setSpacing(6)
         for text, tip, slot, kind in (
+            ("Panduan", "Buka panduan pengguna (PDF) · F1", self.open_guide, "ghost"),
             ("Mulai Ulang Kamera", "Sambungkan ulang kamera", self.start_camera, "ghost"),
             ("Kunci", "Kunci tab admin dan kembali ke Kunjungan", self._lock, "ghost"),
             ("Keluar", "Tutup aplikasi", self.close, "danger"),
@@ -152,6 +157,9 @@ class MainWindow(QMainWindow):
 
         fullscreen = QAction("Layar Penuh", self, triggered=self._toggle_fullscreen)
         fullscreen.setShortcut(QKeySequence("F11"))
+        guide = QAction("Panduan", self, triggered=self.open_guide)
+        guide.setShortcut(QKeySequence("F1"))
+        self.addAction(guide)
         kiosk = QAction("Mode Kios", self, triggered=self.open_kiosk)
         kiosk.setShortcut(QKeySequence("F10"))
         self.addActions([fullscreen, kiosk])
@@ -495,6 +503,18 @@ class MainWindow(QMainWindow):
             return
         if created:
             self.statusBar().showMessage(f"Backup otomatis dibuat: {created.name}", 8000)
+
+    def open_guide(self) -> None:
+        """Buka panduan PDF (ikut dibundel di installer) dengan penampil PDF bawaan sistem."""
+        if not GUIDE_PDF.is_file() or not QDesktopServices.openUrl(
+            QUrl.fromLocalFile(str(GUIDE_PDF))
+        ):
+            QMessageBox.information(
+                self,
+                "Panduan",
+                f"Panduan tidak bisa dibuka. File: {GUIDE_PDF}\n"
+                "Pastikan ada aplikasi pembuka PDF (mis. browser) di komputer ini.",
+            )
 
     def _toggle_fullscreen(self) -> None:
         self.showNormal() if self.isFullScreen() else self.showFullScreen()

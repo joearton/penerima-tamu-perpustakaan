@@ -31,7 +31,7 @@ jobs:
         with:
           files: |
             dist/*-setup.exe
-            docs/Panduan-Penerima-Tamu-Perpustakaan.pdf
+            src/library_visitor/docs/Panduan-Penerima-Tamu.pdf
           body: |
             Installer Windows Penerima Tamu Perpustakaan.
 
@@ -39,7 +39,8 @@ jobs:
             petunjuk. Model wajah sudah dibundel, jadi tidak perlu internet saat pertama dijalankan.
             Saat pertama dibuka, masukkan key lisensi dari penyedia aplikasi.
 
-            Panduan pengguna lengkap ada di `Panduan-Penerima-Tamu-Perpustakaan.pdf`.
+            Panduan pengguna lengkap ada di `Panduan-Penerima-Tamu.pdf` (juga bisa dibuka dari tombol
+            **Panduan** di aplikasi).
 
   linux:
     # Ubuntu lama agar hasil build kompatibel dengan glibc distro yang lebih tua

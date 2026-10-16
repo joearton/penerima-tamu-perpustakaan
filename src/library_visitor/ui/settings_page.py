@@ -13,7 +13,6 @@ from PySide6.QtWidgets import (
     QDoubleSpinBox,
     QFileDialog,
     QFormLayout,
-    QGridLayout,
     QGroupBox,
     QHBoxLayout,
     QLabel,
@@ -23,6 +22,7 @@ from PySide6.QtWidgets import (
     QScrollArea,
     QSlider,
     QSpinBox,
+    QTabWidget,
     QVBoxLayout,
     QWidget,
 )
@@ -48,6 +48,21 @@ def _spin(lo: int, hi: int, suffix: str = "") -> QSpinBox:
 
 def _dspin(lo: float, hi: float, step: float) -> QDoubleSpinBox:
     return QDoubleSpinBox(minimum=lo, maximum=hi, singleStep=step, decimals=2)
+
+
+def _tab_page(groups: list[QGroupBox]) -> QScrollArea:
+    """Isi satu tab: kartu-kartu pengaturan bertumpuk, lebar dibatasi agar form mudah dibaca."""
+    content = QWidget()
+    column = QVBoxLayout(content)
+    column.setContentsMargins(4, 12, 4, 12)
+    column.setSpacing(4)
+    for group in groups:
+        group.setMaximumWidth(900)
+        column.addWidget(group)
+    column.addStretch(1)
+    scroll = QScrollArea(widgetResizable=True)
+    scroll.setWidget(content)
+    return scroll
 
 
 def _hint(text: str) -> QLabel:
@@ -117,7 +132,7 @@ class SettingsPage(QWidget):
         # --- Umum ---
         self.kiosk_on_start = QCheckBox("Buka Mode Kios saat aplikasi dimulai")
         self.kiosk_show_names = QCheckBox("Tampilkan nama pengunjung di layar kios")
-        general = QGroupBox("Umum")
+        general = QGroupBox("Mode Kios")
         f = QFormLayout(general)
         f.addRow(self.kiosk_on_start)
         f.addRow(self.kiosk_show_names)
@@ -359,24 +374,22 @@ class SettingsPage(QWidget):
             )
         )
 
-        # --- Tata letak ---
-        grid = QGridLayout()
-        grid.addWidget(identity, 0, 0)
-        grid.addWidget(general, 1, 0)
-        grid.addWidget(camera, 2, 0)
-        grid.addWidget(security, 3, 0)
-        grid.addWidget(greet, 0, 1, 3, 1)
-        grid.addWidget(sound, 3, 1)
-        grid.addWidget(gallery, 4, 1)
-        grid.addWidget(web, 4, 0)
-        grid.setColumnStretch(0, 1)
-        grid.setColumnStretch(1, 1)
-        content = QWidget()
-        inner = QVBoxLayout(content)
-        inner.addLayout(grid)
-        inner.addStretch(1)
-        scroll = QScrollArea(widgetResizable=True)
-        scroll.setWidget(content)
+        # --- Tata letak: satu tab per kelompok pengaturan ---
+        self.tabs = QTabWidget()
+        self.tabs.setDocumentMode(True)
+        for title, groups in (
+            ("Umum", [identity, general]),
+            ("Kamera && Wajah", [camera]),
+            ("Kunjungan && Sapaan", [greet]),
+            ("Suara", [sound]),
+            ("Keamanan && Data", [security]),
+            ("Galeri Foto", [gallery]),
+            ("Registrasi Web", [web]),
+        ):
+            if len(groups) == 1:  # judul kartu sudah sama dengan judul tab
+                groups[0].setTitle("")
+                groups[0].setProperty("untitled", True)
+            self.tabs.addTab(_tab_page(groups), title)
 
         buttons = QHBoxLayout()
         buttons.addStretch(1)
@@ -387,7 +400,7 @@ class SettingsPage(QWidget):
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(16, 14, 16, 14)
-        layout.addWidget(scroll, 1)
+        layout.addWidget(self.tabs, 1)
         layout.addLayout(buttons)
         self.refresh()
 

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "library-visitor"
-version = "1.1.0"
+version = "1.2.0"
 description = "Aplikasi desktop pencatat pengunjung perpustakaan dengan face recognition"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -33,7 +33,7 @@ library-visitor = "library_visitor.__main__:main"
 where = ["src"]
 
 [tool.setuptools.package-data]
-library_visitor = ["face/antispoof_models/*", "ui/icon.png", "ui/assets/*", "web/static/*"]
+library_visitor = ["face/antispoof_models/*", "ui/icon.png", "ui/assets/*", "web/static/*", "docs/*.pdf"]
 
 [tool.ruff]
 line-length = 100

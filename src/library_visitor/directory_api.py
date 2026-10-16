@@ -36,7 +36,7 @@ from library_visitor.extensions import DirectoryPerson, DirectoryPhoto, Extensio
 
 log = logging.getLogger(__name__)
 
-USER_AGENT = "library-visitor/1.1"
+USER_AGENT = "library-visitor/1.2"
 KNOWN_CATEGORIES = ("Mahasiswa", "Dosen", "Staf")
 MIN_SEARCH_CHARS = 3
 FACES_PER_PAGE = 100

@@ -13,6 +13,7 @@ datas = [(str(ROOT / "models" / name), "models") for name in MODELS] + [
     (str(ROOT / "src/library_visitor/ui/icon.png"), "library_visitor/ui"),
     (str(ROOT / "src/library_visitor/ui/assets"), "library_visitor/ui/assets"),
     (str(ROOT / "src/library_visitor/web/static"), "library_visitor/web/static"),
+    (str(ROOT / "src/library_visitor/docs"), "library_visitor/docs"),
 ]
 
 a = Analysis(

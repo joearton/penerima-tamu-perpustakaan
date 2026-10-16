@@ -77,3 +77,9 @@ def test_reset_pin_cli(tmp_path, capsys):
     loaded = Settings.load(tmp_path)
     assert loaded.check_pin("12345") and not loaded.check_pin("1234")
     assert "PIN admin diganti" in capsys.readouterr().out
+
+
+def test_guide_pdf_is_packaged():
+    """Tombol Panduan membuka PDF yang ikut dibundel di paket/installer."""
+    assert main_window_mod.GUIDE_PDF.is_file()
+    assert main_window_mod.GUIDE_PDF.read_bytes()[:5] == b"%PDF-"

@@ -58,7 +58,7 @@ Placeholder sapaan: `{salam}`, `{nama}`, `{nama_depan}`, `{kategori}`, `{lokasi}
 
 **Lupa PIN admin?** Tutup aplikasi (dari Mode Kios, tekan Esc lalu **Tutup Aplikasi**), kemudian jalankan `library-visitor --reset-pin <PIN baru>` (versi terinstal: `penerima-tamu --reset-pin <PIN baru>`). PIN berupa angka, minimal 4 digit.
 
-Panduan pengguna bergambar ada di [`docs/Panduan-Penerima-Tamu-Perpustakaan.pdf`](docs/Panduan-Penerima-Tamu-Perpustakaan.pdf).
+Panduan pengguna bergambar ada di [`src/library_visitor/docs/Panduan-Penerima-Tamu.pdf`](src/library_visitor/docs/Panduan-Penerima-Tamu.pdf), dan bisa dibuka dari tombol **Panduan** di aplikasi.
 
 > gTTS membutuhkan internet dan mengirim teks sapaan (termasuk nama anggota) ke server Google.
 > Matikan "Ucapkan sapaan" bila hal ini tidak diizinkan kebijakan privasi instansi.
