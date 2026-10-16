@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="id">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#2563EB">
+  <title>Registrasi Anggota</title>
+  <link rel="stylesheet" href="/style.css">
+  <script src="/app.js" defer></script>
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <strong id="library">Registrasi Anggota</strong>
+      <small id="institution"></small>
+    </div>
+    <button id="logout" class="ghost" hidden>Keluar</button>
+  </header>
+
+  <main>
+    <!-- Login -->
+    <section id="login-view" class="card narrow" hidden>
+      <h1>Masuk</h1>
+      <p class="muted">Masukkan PIN admin aplikasi Penerima Tamu untuk mendaftarkan anggota.</p>
+      <form id="login-form" autocomplete="off">
+        <label for="pin">PIN admin</label>
+        <input id="pin" type="password" inputmode="numeric" autocomplete="current-password" required>
+        <button type="submit" class="primary block">Masuk</button>
+      </form>
+    </section>
+
+    <!-- Registrasi -->
+    <section id="register-view" hidden>
+      <div class="card">
+        <h2>Data Anggota</h2>
+        <div class="person">
+          <img id="photo" alt="Foto profil dari direktori" hidden>
+          <div class="person-fields">
+            <label for="member-no">No. Anggota / NIM / nama</label>
+            <div class="row">
+              <div class="suggest-wrap">
+                <input id="member-no" autocomplete="off" placeholder="Ketik NIM atau nama" required>
+                <ul id="suggestions" class="suggestions" hidden></ul>
+              </div>
+              <button id="lookup" type="button">Cari</button>
+            </div>
+            <p id="lookup-status" class="muted small"></p>
+          </div>
+        </div>
+        <label for="name">Nama</label>
+        <input id="name" required>
+        <div class="grid2">
+          <div>
+            <label for="category">Kategori</label>
+            <select id="category"></select>
+          </div>
+          <div>
+            <label for="unit">Prodi/Unit</label>
+            <input id="unit" placeholder="Program studi / unit kerja">
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>Wajah</h2>
+        <div class="camera">
+          <video id="video" playsinline muted></video>
+          <div id="camera-placeholder" class="camera-placeholder">Kamera belum aktif</div>
+        </div>
+        <div class="row wrap">
+          <button id="start-camera" type="button">Mulai Kamera</button>
+          <button id="switch-camera" type="button" class="ghost" hidden>Ganti Kamera</button>
+          <button id="capture" type="button" class="primary" disabled>Ambil Wajah</button>
+        </div>
+        <p id="hint" class="callout">Arahkan kamera ke wajah anggota (hanya satu wajah), lalu tekan
+          "Ambil Wajah". Minta anggota menggerakkan kepala sedikit ke kiri dan kanan.</p>
+        <div id="thumbs" class="thumbs"></div>
+        <label class="check">
+          <input id="consent" type="checkbox">
+          <span>Anggota menyetujui pengolahan data biometrik wajah untuk keperluan pencatatan
+            kunjungan perpustakaan (UU No. 27/2022 tentang PDP).</span>
+        </label>
+      </div>
+
+      <div class="actions">
+        <button id="reset" type="button" class="ghost">Reset</button>
+        <button id="save" type="button" class="success">Simpan</button>
+      </div>
+    </section>
+
+    <div id="toast" class="toast" role="status" hidden></div>
+  </main>
+  <canvas id="canvas" hidden></canvas>
+</body>
+</html>

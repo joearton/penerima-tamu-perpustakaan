@@ -127,6 +127,10 @@ class Settings:
     admin_usernames: str = ""  # username dari login eksternal, pisahkan dengan koma
     admin_group: str = ""  # atau semua anggota grup ini
 
+    # Registrasi via web (HTTPS, khusus LAN); butuh PIN admin untuk login
+    web_enabled: bool = False
+    web_port: int = 8443
+
     @property
     def models_dir(self) -> Path:
         return bundled_models_dir() or self.home / "models"

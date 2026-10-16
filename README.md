@@ -39,6 +39,13 @@ Aplikasi wajib diaktivasi dengan key lisensi. Saat dibuka tanpa lisensi yang val
 - Lisensi yang kedaluwarsa saat aplikasi sedang berjalan terdeteksi dalam pengecekan per jam, lalu dialog aktivasi muncul.
 - Key dibuat dengan aplikasi **license-generator** di folder terpisah (tidak ada di repo ini), karena folder itu menyimpan kunci privat.
 
+## Registrasi via web (LAN)
+Anggota bisa didaftarkan dari HP atau laptop petugas lewat browser, dengan wajah difoto memakai kamera perangkat itu.
+- Aktifkan di **Pengaturan → Registrasi via Web (LAN)** dan tentukan port (default 8443). Fitur ini butuh **PIN admin**, yang juga dipakai untuk login di web.
+- Buka alamat yang ditampilkan (mis. `https://192.168.1.20:8443`) dari perangkat di jaringan yang sama. Sertifikat HTTPS dibuat otomatis di `data/web/`, karena browser hanya mengizinkan kamera di halaman HTTPS. Peringatan sertifikat muncul sekali per perangkat; pilih lanjutkan.
+- Isi data (dengan auto-complete, lookup, dan foto profil direktori), ambil beberapa foto wajah, centang persetujuan, lalu simpan. Foto diproses di PC dengan model wajah dan anti-spoofing yang sama dengan aplikasi, lalu dibuang. Yang disimpan hanya embedding.
+- Keamanan: hanya alamat jaringan lokal yang diterima. Setelah 5 kali PIN salah, alamat IP tersebut dikunci 60 detik. Sesi login berlaku 8 jam dan disimpan di cookie HttpOnly/Secure/SameSite=Strict. Saat pertama aktif, Windows akan meminta izin firewall untuk port tersebut.
+
 ## Identitas perpustakaan
 Diatur di **Pengaturan → Identitas Perpustakaan**: nama perpustakaan, alamat, kontak, dan logo. Logo disalin ke `data/logo.png`. Nama institusi diambil dari lisensi. Identitas ini tampil di header aplikasi, layar Mode Kios, dan sheet **Info** pada ekspor Excel.
 

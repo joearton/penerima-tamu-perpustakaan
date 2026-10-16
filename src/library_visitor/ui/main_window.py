@@ -36,6 +36,9 @@ from library_visitor.ui.settings_page import SettingsPage
 from library_visitor.ui.theme import role, variant
 from library_visitor.ui.visit_page import VisitPage
 from library_visitor.ui.widgets import logo_pixmap
+from library_visitor.web.registration import RegistrationError, WebRegistration
+from library_visitor.web.server import WebRegistrationServer
+from library_visitor.web.tls import local_ipv4_addresses
 
 log = logging.getLogger(__name__)
 
@@ -51,11 +54,13 @@ CAMERA_FIELDS = {
 
 
 GALLERY_FILTER_FIELDS = {"gallery_categories", "gallery_prefixes", "gallery_status"}
+WEB_FIELDS = {"web_enabled", "web_port", "admin_pin_hash"}
 
 
 class MainWindow(QMainWindow):
     _gallery_progress = Signal(object)  # SyncStats
     _gallery_done = Signal(object, str)  # SyncStats | None, pesan galat
+    _web_saved = Signal()  # dipancarkan dari thread server web
 
     def __init__(
         self,
@@ -173,6 +178,15 @@ class MainWindow(QMainWindow):
         self._update_gallery_info()
         QTimer.singleShot(5000, self._auto_gallery_sync)
 
+        self._web = WebRegistrationServer(
+            WebRegistration(service, settings, self._extensions.directory),
+            settings,
+            settings.data_dir / "web",
+            on_saved=self._web_saved.emit,
+        )
+        self._web_saved.connect(self._on_members_changed)
+        self._apply_web()
+
     # ---------- kamera ----------
 
     def start_camera(self) -> None:
@@ -282,6 +296,8 @@ class MainWindow(QMainWindow):
             self.start_camera()
         if changed & GALLERY_FILTER_FIELDS and self._gallery is not None:
             self.start_gallery_sync(full=True)
+        if changed & WEB_FIELDS:
+            self._apply_web()
 
     # ---------- galeri foto direktori ----------
 
@@ -388,6 +404,32 @@ class MainWindow(QMainWindow):
 
     # ---------- lain-lain ----------
 
+    # ---------- registrasi via web ----------
+
+    def _apply_web(self) -> None:
+        s = self._settings
+        self._web.stop()
+        if not s.web_enabled:
+            self.settings_page.set_web_info("Nonaktif")
+            return
+        if not s.pin_enabled:
+            self.settings_page.set_web_info("Tidak aktif: atur PIN admin dulu")
+            return
+        ips = local_ipv4_addresses()
+        try:
+            self._web.start(s.web_port, ips=ips)
+        except (OSError, RegistrationError) as exc:
+            log.warning("Registrasi web gagal dimulai: %s", exc)
+            message = f"Gagal aktif di port {s.web_port}: {exc}"
+            self.settings_page.set_web_info(message)
+            self.statusBar().showMessage(message, 15000)
+            return
+        urls = [f"https://{ip}:{self._web.port}" for ip in ips] or [
+            f"https://localhost:{self._web.port}"
+        ]
+        self.settings_page.set_web_info("Aktif: " + "  ·  ".join(urls))
+        self.statusBar().showMessage(f"Registrasi web aktif: {urls[0]}", 15000)
+
     # ---------- lisensi ----------
 
     def _change_license(self) -> None:
@@ -447,5 +489,6 @@ class MainWindow(QMainWindow):
         if self._kiosk is not None:
             self._kiosk.force_close()
         self.stop_camera()
+        self._web.stop()
         self.announcer.shutdown()
         super().closeEvent(event)

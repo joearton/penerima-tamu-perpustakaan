@@ -119,6 +119,9 @@ class VisitPage(QWidget):
         header = QHBoxLayout()
         header.setSpacing(12)
         header.addWidget(self.logo)
+        # Di jendela utama identitas sudah tampil di header aplikasi; hanya kios yang perlu sendiri
+        self.logo.setVisible(kiosk)
+        self.title.setVisible(kiosk)
         header.addLayout(titles, 1)
         header.addWidget(self.clock)
         if not kiosk:
@@ -202,7 +205,7 @@ class VisitPage(QWidget):
         self.title.setText(s.library_name)
         details = [s.licensee, s.library_address, s.library_contact]
         self.subtitle.setText("  ·  ".join(x for x in details if x))
-        self.subtitle.setVisible(any(details))
+        self.subtitle.setVisible(self._kiosk and any(details))
         self.logo.setPixmap(logo_pixmap(s, 72 if self._kiosk else 48))
         if self._kiosk:
             self.today.set_show_names(self._settings.kiosk_show_names)

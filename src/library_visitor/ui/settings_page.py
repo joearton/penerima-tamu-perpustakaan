@@ -339,6 +339,26 @@ class SettingsPage(QWidget):
             )
         )
 
+        # --- Registrasi via web ---
+        self.web_enabled = QCheckBox("Aktifkan registrasi anggota via web (HP/laptop di LAN)")
+        self.web_port = _spin(1024, 65535)
+        self.web_info = QLabel("Nonaktif")
+        self.web_info.setWordWrap(True)
+        self.web_info.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        web = QGroupBox("Registrasi via Web (LAN)")
+        f = QFormLayout(web)
+        f.addRow(self.web_enabled)
+        f.addRow("Port", self.web_port)
+        f.addRow("Alamat", self.web_info)
+        f.addRow(
+            _hint(
+                "Buka alamat di atas dari HP/laptop yang terhubung ke jaringan yang sama, lalu "
+                "login dengan PIN admin (wajib diatur). Sertifikat HTTPS dibuat otomatis, jadi "
+                "browser akan menampilkan peringatan sekali: pilih lanjutkan. Hanya perangkat di "
+                "jaringan lokal yang diterima; foto wajah tidak disimpan, hanya embedding."
+            )
+        )
+
         # --- Tata letak ---
         grid = QGridLayout()
         grid.addWidget(identity, 0, 0)
@@ -348,6 +368,7 @@ class SettingsPage(QWidget):
         grid.addWidget(greet, 0, 1, 3, 1)
         grid.addWidget(sound, 3, 1)
         grid.addWidget(gallery, 4, 1)
+        grid.addWidget(web, 4, 0)
         grid.setColumnStretch(0, 1)
         grid.setColumnStretch(1, 1)
         content = QWidget()
@@ -422,6 +443,8 @@ class SettingsPage(QWidget):
         self.volume.setValue(s.volume)
         self.pin.clear()
         self.remove_pin.setChecked(False)
+        self.web_enabled.setChecked(s.web_enabled)
+        self.web_port.setValue(s.web_port)
         self.pin_status.setText("PIN aktif" if s.pin_enabled else "Tanpa PIN")
         self.admin_usernames.setText(s.admin_usernames)
         self.admin_group.setText(s.admin_group)
@@ -472,6 +495,8 @@ class SettingsPage(QWidget):
             "volume": self.volume.value(),
             "admin_usernames": self.admin_usernames.text().strip(),
             "admin_group": self.admin_group.text().strip(),
+            "web_enabled": self.web_enabled.isChecked(),
+            "web_port": self.web_port.value(),
         }
 
     def _save(self) -> None:
@@ -480,6 +505,12 @@ class SettingsPage(QWidget):
             QMessageBox.warning(self, "PIN", "PIN harus berupa angka, minimal 4 digit.")
             return
         s = self._settings
+        pin_after = bool(pin) or (s.pin_enabled and not self.remove_pin.isChecked())
+        if self.web_enabled.isChecked() and not pin_after:
+            QMessageBox.warning(
+                self, "PIN admin", "Registrasi via web butuh PIN admin untuk login. Isi PIN dulu."
+            )
+            return
         before = s.to_dict()
         try:
             logo = self._store_logo()
@@ -505,6 +536,9 @@ class SettingsPage(QWidget):
         QMessageBox.information(self, "Tersimpan", "Pengaturan disimpan dan langsung diterapkan.")
 
     # ---------- identitas & lisensi ----------
+
+    def set_web_info(self, text: str) -> None:
+        self.web_info.setText(text)
 
     def set_license(self, lic: License | None) -> None:
         self.license_info.setText(lic.describe() if lic else "Belum ada lisensi aktif")

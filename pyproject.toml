@@ -33,7 +33,7 @@ library-visitor = "library_visitor.__main__:main"
 where = ["src"]
 
 [tool.setuptools.package-data]
-library_visitor = ["face/antispoof_models/*", "ui/icon.png", "ui/assets/*"]
+library_visitor = ["face/antispoof_models/*", "ui/icon.png", "ui/assets/*", "web/static/*"]
 
 [tool.ruff]
 line-length = 100
