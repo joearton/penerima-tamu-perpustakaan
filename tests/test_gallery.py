@@ -1,4 +1,5 @@
 import os
+import threading
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
@@ -82,11 +83,61 @@ def test_sync_filters_skips_and_is_incremental(tmp_path, monkeypatch):
 
     directory2 = FakeDirectory([])
     sync_gallery(directory2, g, tmp_path, gallery_filter=gfilter)
-    assert directory2.since == "2026-10-01"  # inkremental dari foto terbaru di galeri
+    # inkremental dari foto terbaru yang sudah diproses (termasuk yang tidak lolos filter)
+    assert directory2.since == "2026-10-03"
 
     directory3 = FakeDirectory([])
     sync_gallery(directory3, g, tmp_path, full=True)
-    assert directory3.since is None and len(g) == 0  # penuh: galeri dikosongkan dulu
+    assert directory3.since is None and len(g) == 0  # penuh: orang yang tidak ada dibuang
+
+
+class FailingDirectory(FakeDirectory):
+    """Gagal setelah beberapa foto, seperti jaringan putus di tengah paginasi."""
+
+    def __init__(self, photos, fail_after):
+        super().__init__(photos)
+        self.fail_after = fail_after
+
+    def iter_photos(self, updated_since=None):
+        self.since = updated_since
+        for i, photo in enumerate(self.photos):
+            if i == self.fail_after:
+                raise ExtensionError("Tidak bisa terhubung ke direktori")
+            yield photo
+
+
+def test_interrupted_sync_keeps_gallery_and_watermark(tmp_path, monkeypatch):
+    monkeypatch.setattr(gallery_mod, "FaceEngine", lambda *a, **k: None)
+    monkeypatch.setattr(gallery_mod, "embed_photo", lambda engine, jpeg: emb(int(jpeg)))
+    g = FaceGallery(create_session_factory(tmp_path / "db.sqlite"))
+    first = [DirectoryPhoto(person(f"250{i}"), str(i).encode(), f"2026-10-0{i}") for i in (1, 2)]
+    sync_gallery(FakeDirectory(first), g, tmp_path)
+    assert len(g) == 2 and g.sync_watermark() == "2026-10-02"
+
+    # API tidak urut waktu: halaman pertama berisi foto terbaru, lalu putus
+    later = [
+        DirectoryPhoto(person("2509"), b"9", "2026-10-09"),
+        DirectoryPhoto(person("2503"), b"3", "2026-10-03"),
+    ]
+    with pytest.raises(ExtensionError):
+        sync_gallery(FailingDirectory(later, fail_after=1), g, tmp_path)
+    assert g.sync_watermark() == "2026-10-02"  # tidak maju: 2503 tidak akan terlewat
+
+    retry = FakeDirectory(later)
+    sync_gallery(retry, g, tmp_path)
+    assert retry.since == "2026-10-02" and len(g) == 4
+
+    # Sinkron penuh yang gagal tidak boleh mengosongkan galeri
+    with pytest.raises(ExtensionError):
+        sync_gallery(FailingDirectory(later, fail_after=0), g, tmp_path, full=True)
+    assert len(g) == 4
+
+    # Dibatalkan pengguna: penanda juga tidak maju
+    cancelled = threading.Event()
+    cancelled.set()
+    newer = [DirectoryPhoto(person("2510"), b"10", "2026-10-20")]
+    sync_gallery(FakeDirectory(newer), g, tmp_path, cancelled=cancelled)
+    assert g.sync_watermark() == "2026-10-09" and len(g) == 4
 
 
 def test_sync_requires_faces_support(tmp_path):

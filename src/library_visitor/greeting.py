@@ -70,5 +70,6 @@ def render_group(
     )
     try:
         return template.format_map(values)
-    except (ValueError, IndexError):  # kurung kurawal tidak berpasangan, dll.
+    except (ValueError, IndexError, KeyError, AttributeError, TypeError):
+        # kurung kurawal tidak berpasangan, {nama.depan}, {nama[0]}, dll.
         return template

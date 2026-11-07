@@ -54,3 +54,30 @@ def test_location_placeholder_and_legacy_alias():
     new = greeting.render("Selamat datang di {lokasi}.", "Siti", "Umum", "Museum Kota")
     old = greeting.render("Selamat datang di {perpustakaan}.", "Siti", "Umum", "Museum Kota")
     assert new == old == "Selamat datang di Museum Kota."
+
+
+def test_corrupt_settings_values_are_skipped(tmp_path):
+    import json
+
+    from library_visitor.config import Settings
+
+    data_dir = tmp_path / "data"
+    data_dir.mkdir()
+    (data_dir / "settings.json").write_text(
+        json.dumps(
+            {
+                "camera_index": None,
+                "visit_cooldown_minutes": "abc",
+                "kiosk_on_start": "false",
+                "match_threshold": "0.5",
+                "library_name": "Museum Kota",
+            }
+        ),
+        encoding="utf-8",
+    )
+    s = Settings.load(tmp_path)  # tidak boleh crash
+    defaults = Settings(home=tmp_path)
+    assert s.camera_index == defaults.camera_index
+    assert s.visit_cooldown_minutes == defaults.visit_cooldown_minutes
+    assert s.kiosk_on_start is False  # "false" bukan berarti True
+    assert s.match_threshold == 0.5 and s.library_name == "Museum Kota"

@@ -273,6 +273,10 @@ class RegisterPage(QWidget):
         except ExtensionError as exc:
             self._lookup_failed.emit(str(exc))
             return
+        except Exception:  # tombol Cari tidak boleh terkunci selamanya
+            log.exception("Lookup direktori gagal")
+            self._lookup_failed.emit("Pencarian direktori gagal, coba lagi.")
+            return
         self._lookup_done.emit(number, person)
         if person is not None:
             self._photo_worker(person)

@@ -257,6 +257,11 @@ class VisitPage(QWidget):
             self._greet_many(visit_results)
 
         if self._anonymous is not None and self._settings.anonymous_enabled:
+            known = [
+                r.embedding for r in faces if r.match and not r.spoof and r.embedding is not None
+            ]
+            if known:
+                self._forget_anonymous(self._anonymous.mark_known(known, now))
             unknown = [
                 r.embedding
                 for r in faces
@@ -284,6 +289,15 @@ class VisitPage(QWidget):
             self._announcer.announce(text)
         self.refresh()
         self.visit_recorded.emit()
+
+    def _forget_anonymous(self, visit_ids: list[int]) -> None:
+        """Hapus catatan anonim yang ternyata anggota yang dikenali kamera (cegah hitung ganda)."""
+        for visit_id in visit_ids:
+            self._service.delete_visit(visit_id)
+            log.info("Kunjungan anonim #%d ternyata anggota; dihapus", visit_id)
+        if visit_ids:
+            self.refresh()
+            self.visit_recorded.emit()
 
     def _claim_anonymous(self) -> None:
         """Orang di depan kamera ternyata scan kartu/isi form tamu: jangan dihitung anonim."""
@@ -320,6 +334,9 @@ class VisitPage(QWidget):
             self._lookup_done.emit(number, self._directory.lookup(number))
         except ExtensionError as exc:
             self._lookup_failed.emit(str(exc))
+        except Exception:  # galat tak terduga tidak boleh membiarkan input scan terkunci
+            log.exception("Lookup direktori gagal")
+            self._lookup_failed.emit("Pencarian direktori gagal, coba lagi atau isi sebagai tamu.")
 
     def _on_lookup_done(self, number: str, person: DirectoryPerson | None) -> None:
         self.member_no.setEnabled(True)

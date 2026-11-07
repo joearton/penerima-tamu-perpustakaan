@@ -47,27 +47,39 @@ def local_ipv4_addresses() -> list[str]:
     return result
 
 
-def _covers(cert: x509.Certificate, ips: list[str]) -> bool:
+MAX_IPS = 16  # batasi daftar IP di sertifikat agar tidak tumbuh tanpa batas
+
+
+def _listed_ips(cert: x509.Certificate) -> list[str]:
     try:
         san = cert.extensions.get_extension_for_class(x509.SubjectAlternativeName).value
     except x509.ExtensionNotFound:
-        return False
-    listed = {str(ip) for ip in san.get_values_for_type(x509.IPAddress)}
-    return set(ips) <= listed
+        return []
+    return [str(ip) for ip in san.get_values_for_type(x509.IPAddress)]
 
 
 def ensure_certificate(directory: Path, ips: list[str] | None = None) -> tuple[Path, Path]:
-    """(cert, key); dibuat ulang bila belum ada, hampir kedaluwarsa, atau IP berubah."""
+    """(cert, key); dibuat ulang bila belum ada, hampir kedaluwarsa, atau IP utama berubah.
+
+    Hanya alamat utama (`ips[0]`, rute keluar) yang menentukan pembuatan ulang. Adaptor virtual
+    (Hyper-V/WSL, VPN) sering berganti IP tiap boot; bila setiap perubahan itu memicu sertifikat
+    baru, HP yang sudah menerima sertifikat akan melihat peringatan lagi. Saat dibuat ulang, IP
+    lama tetap disertakan.
+    """
     ips = local_ipv4_addresses() if ips is None else ips
     cert_path, key_path = directory / CERT_FILE, directory / KEY_FILE
+    previous: list[str] = []
     if cert_path.exists() and key_path.exists():
         try:
             cert = x509.load_pem_x509_certificate(cert_path.read_bytes())
+            previous = _listed_ips(cert)
             fresh = cert.not_valid_after_utc - datetime.now(UTC) > RENEW_BEFORE
-            if fresh and _covers(cert, ips):
+            if fresh and (not ips or ips[0] in previous):
                 return cert_path, key_path
         except ValueError:
             pass
+    # IP sekarang lebih dulu, lalu IP lama (tanpa loopback yang selalu ditambahkan di bawah)
+    ips = list(dict.fromkeys(ips + [ip for ip in previous if ip != "127.0.0.1"]))[:MAX_IPS]
     directory.mkdir(parents=True, exist_ok=True)
     key = ec.generate_private_key(ec.SECP256R1())
     hostname = socket.gethostname() or "penerima-tamu"

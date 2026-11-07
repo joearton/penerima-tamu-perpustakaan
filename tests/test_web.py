@@ -86,17 +86,65 @@ def test_login_guard_locks_after_failures():
     assert not guard.valid(token)  # sesi kedaluwarsa
 
 
-def test_certificate_covers_local_ips_and_regenerates(tmp_path):
+def _cert_ips(path):
+    cert = x509.load_pem_x509_certificate(path.read_bytes())
+    san = cert.extensions.get_extension_for_class(x509.SubjectAlternativeName).value
+    return {str(ip) for ip in san.get_values_for_type(x509.IPAddress)}
+
+
+def test_certificate_stable_when_only_secondary_ips_change(tmp_path):
+    cert_path, _ = ensure_certificate(tmp_path, ["192.168.1.20", "172.21.48.1"])
+    first = cert_path.read_bytes()
+    # Adaptor virtual (Hyper-V/WSL/VPN) berganti IP: sertifikat dipakai ulang, HP tidak diganggu
+    assert ensure_certificate(tmp_path, ["192.168.1.20", "172.30.5.1"])[0].read_bytes() == first
+    assert ensure_certificate(tmp_path, ["192.168.1.20"])[0].read_bytes() == first
+
+
+def test_certificate_regenerates_for_new_primary_ip_and_keeps_old(tmp_path):
     cert_path, _ = ensure_certificate(tmp_path, ["192.168.1.20"])
     first = cert_path.read_bytes()
-    assert ensure_certificate(tmp_path, ["192.168.1.20"])[0].read_bytes() == first  # dipakai ulang
-    ensure_certificate(tmp_path, ["192.168.1.20", "10.0.0.7"])
-    cert = x509.load_pem_x509_certificate(cert_path.read_bytes())
-    san = cert.extensions.get_extension_for_class(x509.SubjectAlternativeName).value
-    assert {str(ip) for ip in san.get_values_for_type(x509.IPAddress)} >= {
-        "10.0.0.7",
-        "192.168.1.20",
-    }
+    ensure_certificate(tmp_path, ["10.0.0.7", "192.168.1.20"])  # pindah jaringan utama
+    assert cert_path.read_bytes() != first
+    assert _cert_ips(cert_path) >= {"10.0.0.7", "192.168.1.20", "127.0.0.1"}
+
+
+CRLF = chr(13) + chr(10)
+
+
+def test_invalid_content_length_rejected_quickly(setup):
+    import socket
+    import time
+
+    settings, _, app = setup
+    settings.set_pin("2468")
+    server = WebRegistrationServer(app, settings, settings.data_dir / "web")
+    server.start(0, host="127.0.0.1", ips=[])
+    context = ssl.create_default_context()
+    context.check_hostname = False
+    context.verify_mode = ssl.CERT_NONE
+    try:
+        for length in ("-1", "abc"):
+            with socket.create_connection(("127.0.0.1", server.port), timeout=5) as raw:
+                with context.wrap_socket(raw) as sock:
+                    started = time.monotonic()
+                    request = CRLF.join(
+                        [
+                            "POST /api/login HTTP/1.1",
+                            "Host: x",
+                            "Content-Type: application/json",
+                            "X-Requested-With: penerima-tamu",
+                            f"Content-Length: {length}",
+                            "Connection: close",
+                            "",
+                            "",
+                        ]
+                    )
+                    sock.sendall(request.encode())
+                    reply = sock.recv(4096)
+                    assert reply.startswith(b"HTTP/1.1 400"), (length, reply[:40])
+                    assert time.monotonic() - started < 3  # tidak menggantung menunggu data
+    finally:
+        server.stop()
 
 
 def test_register_rejects_bad_photos_and_detects_duplicates(setup):

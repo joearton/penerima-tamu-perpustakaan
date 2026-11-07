@@ -125,6 +125,9 @@ class AdminAuthDialog(QDialog):
             self._login_ok.emit(session.run(webbrowser.open))
         except ExtensionError as exc:
             self._login_failed.emit(str(exc))
+        except Exception:  # tombol login tidak boleh terkunci selamanya
+            log.exception("Login admin eksternal gagal")
+            self._login_failed.emit("Login gagal, coba lagi.")
 
     def _on_login_ok(self, user: AdminUser) -> None:
         s = self._settings

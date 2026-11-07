@@ -76,6 +76,8 @@ class MainWindow(QMainWindow):
     ) -> None:
         super().__init__()
         self._license = license_
+        self._license_prompt = False
+        self._retired_workers: list[CameraWorker] = []
         self._service = service
         self._settings = settings
         self._extensions = extensions or Extensions()
@@ -231,9 +233,22 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage(f"Kamera diganti ke #{index}", 5000)
 
     def stop_camera(self) -> None:
-        if self._worker is not None:
-            self._worker.stop()
-            self._worker = None
+        worker, self._worker = self._worker, None
+        if worker is None:
+            return
+        # Frame dari worker lama tidak boleh diproses lagi (mencegah catat ganda)
+        worker.frame_ready.disconnect(self._on_frame)
+        worker.failed.disconnect(self._on_camera_error)
+        if not worker.stop():
+            # Masih membuka model/kamera atau read() menggantung: simpan referensinya sampai
+            # thread selesai. Melepas QThread yang masih berjalan membuat Qt crash.
+            log.warning("Thread kamera belum berhenti; ditunggu di latar belakang")
+            self._retired_workers.append(worker)
+            worker.finished.connect(lambda w=worker: self._retire_done(w))
+
+    def _retire_done(self, worker: CameraWorker) -> None:
+        if worker in self._retired_workers:
+            self._retired_workers.remove(worker)
 
     def _on_frame(self, image: QImage, results: list) -> None:
         # Selama mode kios aktif, hanya jendela kios yang memproses frame (mencegah catat ganda)
@@ -292,6 +307,7 @@ class MainWindow(QMainWindow):
             self._kiosk.raise_()
             self._kiosk.activateWindow()
             return
+        self._lock()  # tab admin tidak boleh tetap terbuka di belakang layar kios
         page = VisitPage(
             self._service,
             self._settings,
@@ -477,9 +493,14 @@ class MainWindow(QMainWindow):
 
     def _check_license(self) -> None:
         """Aplikasi kios bisa menyala berhari-hari: lisensi kedaluwarsa wajib diperbarui."""
-        if self._license is None or not self._license.is_expired():
+        if self._license is None or not self._license.is_expired() or self._license_prompt:
             return
         log.warning("Lisensi kedaluwarsa: %s", self._license.describe())
+        # Tanpa lisensi aktif tidak ada pencatatan: kamera berhenti selama dialog terbuka
+        self._license_prompt = True
+        self.stop_camera()
+        if self._kiosk is not None:
+            self._kiosk.force_close()
         dialog = LicenseDialog(
             self._settings.data_dir,
             current=self._license,
@@ -487,8 +508,11 @@ class MainWindow(QMainWindow):
             reason="Lisensi sudah kedaluwarsa. Masukkan key baru untuk melanjutkan.",
             parent=self,
         )
-        if dialog.exec() == QDialog.DialogCode.Accepted:
+        accepted = dialog.exec() == QDialog.DialogCode.Accepted
+        self._license_prompt = False
+        if accepted:
             self._set_license(dialog.license)
+            self.start_camera()
         else:
             self.close()
 

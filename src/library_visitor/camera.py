@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import threading
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -54,11 +55,14 @@ class CameraWorker(QThread):
         self._max_faces = max_faces
         # None = anti-spoofing nonaktif
         self._antispoof_threshold = antispoof_threshold
-        self._running = False
+        # Event (bukan flag yang diset di run): stop() saat model/kamera masih dibuka tidak
+        # boleh tertimpa, kalau tidak loop berjalan terus dan kamera tidak pernah dilepas.
+        self._stop_event = threading.Event()
 
-    def stop(self) -> None:
-        self._running = False
-        self.wait(3000)
+    def stop(self, timeout_ms: int = 3000) -> bool:
+        """Minta berhenti; True bila thread sudah selesai dalam batas waktu."""
+        self._stop_event.set()
+        return self.wait(timeout_ms)
 
     def run(self) -> None:
         try:
@@ -69,6 +73,8 @@ class CameraWorker(QThread):
             return
         state = "aktif" if antispoof is not None else "nonaktif"
         log.info("Model wajah dimuat (anti-spoofing %s)", state)
+        if self._stop_event.is_set():
+            return
         cap = cv2.VideoCapture(self._camera_index)
         if not cap.isOpened():
             self.failed.emit(f"Kamera #{self._camera_index} tidak dapat dibuka")
@@ -76,9 +82,8 @@ class CameraWorker(QThread):
         cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
         cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
 
-        self._running = True
         try:
-            while self._running:
+            while not self._stop_event.is_set():
                 ok, frame = cap.read()
                 if not ok:
                     self.failed.emit("Gagal membaca frame dari kamera")

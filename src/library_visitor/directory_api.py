@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import base64
 import binascii
+import http.client
 import json
 import logging
 import os
@@ -172,7 +173,9 @@ class ApiDirectory:
                     "Batas permintaan ke direktori terlampaui, coba lagi nanti"
                 ) from None
             raise ExtensionError(f"Direktori mengembalikan HTTP {exc.code}") from None
-        except (urllib.error.URLError, TimeoutError) as exc:
+        except (urllib.error.URLError, TimeoutError, OSError, http.client.HTTPException) as exc:
+            # Koneksi diputus di tengah jalan (RemoteDisconnected, ConnectionResetError,
+            # IncompleteRead) tidak dibungkus urllib menjadi URLError
             raise ExtensionError(f"Tidak bisa terhubung ke direktori: {exc}") from None
         except ValueError:
             raise ExtensionError("Respons direktori bukan JSON yang valid") from None
@@ -213,7 +216,13 @@ class ApiDirectory:
         try:
             with urllib.request.urlopen(req, timeout=self._timeout) as resp:
                 data = resp.read(MAX_PHOTO_BYTES + 1)
-        except (urllib.error.URLError, TimeoutError, ValueError) as exc:
+        except (
+            urllib.error.URLError,
+            TimeoutError,
+            ValueError,
+            OSError,
+            http.client.HTTPException,
+        ) as exc:
             log.warning("Foto profil tidak bisa diambil: %s", exc)
             return b""
         return data if len(data) <= MAX_PHOTO_BYTES else b""

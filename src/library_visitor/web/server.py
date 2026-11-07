@@ -45,6 +45,8 @@ STATIC_FILES = {
 SESSION_COOKIE = "pt_session"
 SESSION_SECONDS = 8 * 60 * 60
 MAX_BODY = MAX_IMAGES * MAX_IMAGE_BYTES * 4 // 3 + 64 * 1024
+SMALL_BODY = 16 * 1024  # login/logout dan permintaan lain sebelum autentikasi
+MAX_CONCURRENT_REGISTRATIONS = 2
 LOGIN_MAX_FAILURES = 5
 LOGIN_LOCK_SECONDS = 60
 SECURITY_HEADERS = {
@@ -94,8 +96,15 @@ class LoginGuard:
         self._sessions: dict[str, float] = {}
         self._failures: dict[str, tuple[int, float]] = {}
         self._lock = threading.Lock()
+        # Pemeriksaan PIN dijalankan satu per satu: tanpa ini permintaan paralel membaca
+        # hitungan gagal yang sama dan penguncian bisa ditembus (brute force PIN).
+        self._attempt_lock = threading.Lock()
 
     def login(self, ip: str, pin: str) -> str:
+        with self._attempt_lock:
+            return self._login(ip, pin)
+
+    def _login(self, ip: str, pin: str) -> str:
         now = self._clock()
         with self._lock:
             count, locked_until = self._failures.get(ip, (0, 0.0))
@@ -173,14 +182,19 @@ class _Handler(BaseHTTPRequestHandler):
         self._json(HTTPStatus.UNAUTHORIZED, {"error": "Silakan login dengan PIN admin"})
         return False
 
-    def _body(self) -> dict:
+    def _body(self, max_size: int = SMALL_BODY) -> dict:
         # Cegah CSRF: wajib JSON + header khusus (tidak bisa dikirim form lintas situs)
         if self.headers.get("X-Requested-With") != "penerima-tamu":
             raise RegistrationError("Permintaan ditolak", 403)
         if not self.headers.get("Content-Type", "").startswith("application/json"):
             raise RegistrationError("Format permintaan harus JSON", 415)
-        length = int(self.headers.get("Content-Length") or 0)
-        if length > MAX_BODY:
+        try:
+            length = int(self.headers.get("Content-Length") or 0)
+        except ValueError:
+            raise RegistrationError("Content-Length tidak valid") from None
+        if length < 0:  # rfile.read(-1) akan menunggu sampai koneksi ditutup
+            raise RegistrationError("Content-Length tidak valid")
+        if length > max_size:
             raise RegistrationError("Data terlalu besar", 413)
         try:
             data = json.loads(self.rfile.read(length) or b"{}")
@@ -230,12 +244,37 @@ class _Handler(BaseHTTPRequestHandler):
             log.exception("Registrasi web: galat GET %s", url.path)
             self._json(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": "Galat di server"})
 
+    def _register(self, ip: str, data: dict) -> None:
+        images = _decode_images(data.get("images") or [])
+        result = self.server.app.register(data, images)
+        log.info(
+            "Registrasi web dari %s: %s (%s), wajah %s",
+            ip,
+            result["name"],
+            result["member_no"],
+            "disimpan" if result["face_saved"] else "tidak diubah",
+        )
+        self.server.on_saved()
+        self._json(HTTPStatus.OK, result)
+
     def do_POST(self) -> None:  # noqa: N802
         if not self._allowed_client():
             return
         path = urlsplit(self.path).path
         ip = self.client_address[0]
         try:
+            if path == "/api/register":
+                # Login dulu, baru baca body besar (foto): klien tanpa sesi tidak bisa
+                # mengirim puluhan MB untuk menghabiskan memori.
+                if not self._authorized():
+                    return
+                if not self.server.register_slots.acquire(blocking=False):
+                    raise RegistrationError("Server sedang sibuk, coba lagi sebentar", 503)
+                try:
+                    self._register(ip, self._body(MAX_BODY))
+                finally:
+                    self.server.register_slots.release()
+                return
             data = self._body()
             if path == "/api/login":
                 token = self.server.guard.login(ip, str(data.get("pin", "")))
@@ -248,20 +287,6 @@ class _Handler(BaseHTTPRequestHandler):
                 self.server.guard.logout(self._token())
                 cookie = f"{SESSION_COOKIE}=; Path=/; Max-Age=0; HttpOnly; Secure; SameSite=Strict"
                 self._json(HTTPStatus.OK, {"ok": True}, {"Set-Cookie": cookie})
-            elif path == "/api/register":
-                if not self._authorized():
-                    return
-                images = _decode_images(data.get("images") or [])
-                result = self.server.app.register(data, images)
-                log.info(
-                    "Registrasi web dari %s: %s (%s), wajah %s",
-                    ip,
-                    result["name"],
-                    result["member_no"],
-                    "disimpan" if result["face_saved"] else "tidak diubah",
-                )
-                self.server.on_saved()
-                self._json(HTTPStatus.OK, result)
             else:
                 self._json(HTTPStatus.NOT_FOUND, {"error": "Tidak ditemukan"})
         except RegistrationError as exc:
@@ -298,6 +323,7 @@ class _Server(ThreadingHTTPServer):
         self.app = app
         self.guard = guard
         self.on_saved = on_saved
+        self.register_slots = threading.BoundedSemaphore(MAX_CONCURRENT_REGISTRATIONS)
 
     def handle_error(self, request, client_address) -> None:
         # Browser yang belum menerima sertifikat buatan sendiri memutus handshake TLS; ini wajar

@@ -72,6 +72,15 @@ class DirectoryFace(Base):
     synced_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
 
 
+class AppState(Base):
+    """Nilai kecil yang harus bertahan antar sesi (mis. penanda sinkron galeri)."""
+
+    __tablename__ = "app_state"
+
+    key: Mapped[str] = mapped_column(String(50), primary_key=True)
+    value: Mapped[str | None] = mapped_column(String(200))
+
+
 def create_session_factory(db_path: Path | str) -> sessionmaker:
     url = "sqlite://" if str(db_path) == ":memory:" else f"sqlite:///{db_path}"
     if url != "sqlite://":

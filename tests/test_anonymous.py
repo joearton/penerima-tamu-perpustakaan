@@ -49,7 +49,9 @@ def test_ttl_expiry_allows_recount():
     t = AnonymousTracker(ttl_seconds=5, same_threshold=0.4, min_frames=2)
     ready = run(t, [[jitter(1, 10)]] * 2)
     t.attach(ready[0], 1, now=0.2)
-    assert run(t, [[jitter(1, 11)]] * 2, start=100) != []  # sudah lewat ttl
+    # ttl minimal 120 detik (lihat MIN_TTL_SECONDS)
+    assert run(t, [[jitter(1, 11)]] * 2, start=100) == []  # belum lewat ttl minimal
+    assert run(t, [[jitter(1, 11)]] * 2, start=300) != []  # >120 dtk sejak terakhir terlihat
 
 
 def test_claim_recent_returns_recorded_visit_and_blocks_future():

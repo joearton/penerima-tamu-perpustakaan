@@ -18,7 +18,7 @@ import numpy as np
 from sqlalchemy import delete, func, select
 from sqlalchemy.orm import sessionmaker
 
-from library_visitor.db import DirectoryFace
+from library_visitor.db import AppState, DirectoryFace
 from library_visitor.extensions import DirectoryPerson, ExtensionError, MemberDirectory
 from library_visitor.face import FaceEngine, FaceMatcher
 from library_visitor.services import from_bytes, to_bytes
@@ -27,6 +27,9 @@ log = logging.getLogger(__name__)
 
 # Wajah di foto profil lebih kecil dari ini (piksel) dianggap tidak layak dijadikan acuan
 MIN_PHOTO_FACE = 40
+
+
+WATERMARK_KEY = "gallery_sync_watermark"
 
 
 @dataclass(frozen=True)
@@ -130,6 +133,33 @@ class FaceGallery:
             self._people.clear()
             self._matcher.load([])
 
+    def retain(self, member_nos: set[str]) -> int:
+        """Buang orang di luar `member_nos` (akhir sinkron penuh); kembalikan jumlahnya."""
+        with self._sessions.begin() as s:
+            removed = s.execute(
+                delete(DirectoryFace).where(DirectoryFace.member_no.not_in(member_nos))
+            ).rowcount
+        if removed:
+            self.load()
+        return removed or 0
+
+    def sync_watermark(self) -> str | None:
+        """Titik awal sinkron inkremental: hanya maju bila sinkron sebelumnya selesai.
+
+        Galeri lama (sebelum penanda ini ada) memakai foto terbaru di galeri, sekali saja.
+        """
+        with self._sessions() as s:
+            state = s.get(AppState, WATERMARK_KEY)
+        if state is not None:
+            return state.value
+        return self.last_photo_update()
+
+    def set_sync_watermark(self, value: str | None) -> None:
+        with self._sessions.begin() as s:
+            state = s.get(AppState, WATERMARK_KEY) or AppState(key=WATERMARK_KEY)
+            state.value = value
+            s.add(state)
+
     def last_photo_update(self) -> str | None:
         with self._sessions() as s:
             return s.scalar(select(func.max(DirectoryFace.photo_updated_at)))
@@ -165,20 +195,28 @@ def sync_gallery(
 ) -> SyncStats:
     """Unduh foto direktori dan perbarui galeri. Jalankan di thread latar.
 
-    `full=True` mengosongkan galeri dulu (membuang orang yang sudah tidak memenuhi syarat);
-    selain itu hanya foto yang berubah sejak sinkron terakhir.
+    `full=True` mengambil semua foto lalu membuang orang yang tidak ada lagi / tidak lolos
+    filter; selain itu hanya foto yang berubah sejak sinkron terakhir yang SELESAI.
+
+    Bila sinkron dibatalkan atau gagal di tengah jalan, galeri tidak dikosongkan dan penanda
+    sinkron tidak maju, sehingga sinkron berikutnya mengulang dari titik aman. Tanpa ini, orang
+    di halaman yang belum terambil terlewat selamanya bila API tidak mengurutkan menurut waktu.
     """
     if not getattr(directory, "supports_faces", False):
         raise ExtensionError("Direktori tidak menyediakan foto (DIRECTORY_FACES_URL kosong)")
     engine = FaceEngine(models_dir, score_threshold=0.6)
-    if full:
-        gallery.clear()
-    since = None if full else gallery.last_photo_update()
+    since = None if full else gallery.sync_watermark()
     stats = SyncStats()
+    kept: set[str] = set()
+    newest = since
+    completed = True
     for photo in directory.iter_photos(updated_since=since):
         if cancelled is not None and cancelled.is_set():
+            completed = False
             break
         stats.total += 1
+        if photo.updated_at and (newest is None or photo.updated_at > newest):
+            newest = photo.updated_at
         if gallery_filter is not None and not gallery_filter.accepts(photo.person):
             stats.filtered += 1
             continue
@@ -187,9 +225,18 @@ def sync_gallery(
             stats.skipped += 1
         else:
             gallery.upsert(photo.person, embedding, photo.updated_at)
+            kept.add(photo.person.member_no)
             stats.added += 1
         if progress is not None and stats.total % 20 == 0:
             progress(stats)
+    if completed:
+        if full:
+            removed = gallery.retain(kept)
+            if removed:
+                log.info("Sinkron penuh: %d orang dibuang dari galeri", removed)
+        gallery.set_sync_watermark(newest)
+    else:
+        log.info("Sinkron galeri dibatalkan; penanda sinkron tidak dimajukan")
     log.info(
         "Sinkron galeri foto (%s): %d diproses, %d ditambahkan/diperbarui, %d tanpa wajah, "
         "%d tidak lolos filter",

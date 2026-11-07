@@ -172,11 +172,29 @@ class Settings:
         return settings
 
     def update(self, values: dict) -> None:
-        """Set nilai yang dikenal dengan konversi tipe; kunci yang tidak dikenal diabaikan."""
+        """Set nilai yang dikenal dengan konversi tipe; kunci yang tidak dikenal diabaikan.
+
+        Nilai yang tidak bisa dikonversi (mis. settings.json diedit manual) dilewati sehingga
+        nilai sebelumnya/default tetap dipakai, bukan membuat aplikasi gagal dibuka.
+        """
         for f in fields(self):
             if f.name in values and f.metadata.get("persist", True):
-                default = getattr(self, f.name)
-                setattr(self, f.name, type(default)(values[f.name]))
+                current = getattr(self, f.name)
+                value = values[f.name]
+                try:
+                    if isinstance(current, bool) and not isinstance(value, bool):
+                        raise TypeError("bukan true/false")  # bool("false") == True
+                    converted = type(current)(value)
+                except (TypeError, ValueError) as exc:
+                    log.warning(
+                        "Pengaturan %s tidak valid (%r), dipakai %r: %s",
+                        f.name,
+                        value,
+                        current,
+                        exc,
+                    )
+                    continue
+                setattr(self, f.name, converted)
 
     def to_dict(self) -> dict:
         data = asdict(self)
